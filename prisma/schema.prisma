@@ -1,0 +1,351 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum RoleName {
+  ADMIN
+  ENGINEER
+  SERVICE
+  GUEST
+}
+
+enum ProjectStatus {
+  DESIGN
+  SOFTWARE
+  COMMISSIONING
+  COMPLETED
+  SERVICE
+  ARCHIVED
+}
+
+enum FileCategory {
+  PLC
+  HMI
+  ROBOT
+  ELECTRICAL
+  MECHANICAL
+  PNEUMATIC
+  VISION
+  CAMERA
+  PHOTO
+  VIDEO
+  FAT
+  SAT
+  SPARE_PARTS
+  DOCUMENT
+  PHOTO_VIDEO
+  BACKUP
+  COMMISSIONING
+  SERVICE
+}
+
+enum StorageProvider {
+  LOCAL
+  NAS
+}
+
+enum ActivityAction {
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  PROJECT_ARCHIVED
+  PROJECT_DELETED
+  FILE_UPLOADED
+  ELECTRICAL_UPLOADED
+  MECHANICAL_UPLOADED
+  DOCUMENT_UPLOADED
+  FILE_DOWNLOADED
+  FILE_DELETED
+  VERSION_CREATED
+  SERVICE_RECORD_ADDED
+  COMMISSIONING_RECORD_ADDED
+  PERMISSION_DENIED
+  USER_CREATED
+  USER_UPDATED
+  USER_DISABLED
+  USER_ENABLED
+  USER_PASSWORD_RESET
+  USER_DELETED
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        RoleName @unique
+  description String?  @db.VarChar(255)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users User[]
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  username     String    @unique @db.VarChar(80)
+  fullName     String?   @db.VarChar(160)
+  department   String?   @db.VarChar(120)
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @db.VarChar(255)
+  roleId       Int
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  role                 Role                  @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  uploadedFiles        ProjectFile[]         @relation("ProjectFileUploader")
+  uploadedFileVersions FileVersion[]         @relation("FileVersionUploader")
+  projectRevisions     ProjectRevision[]     @relation("ProjectRevisionResponsibleUser")
+  activityLogs         ActivityLog[]
+  serviceRecords       ServiceRecord[]       @relation("ServiceRecordEngineer")
+  commissioningRecords CommissioningRecord[] @relation("CommissioningRecordEngineer")
+  createdProjects      Project[]             @relation("ProjectCreator")
+  updatedProjects      Project[]             @relation("ProjectUpdater")
+
+  @@index([roleId])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model Customer {
+  id           Int       @id @default(autoincrement())
+  customerCode String    @unique @db.VarChar(50)
+  customerName String    @db.VarChar(255)
+  city         String?   @db.VarChar(120)
+  country      String?   @db.VarChar(120)
+  notes        String?   @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  projects Project[]
+
+  @@index([customerName])
+  @@index([deletedAt])
+}
+
+model Project {
+  id                   Int           @id @default(autoincrement())
+  projectCode          String        @unique @db.VarChar(30)
+  serialNumber         String        @unique @db.VarChar(80)
+  machineName          String        @db.VarChar(255)
+  machineType          String?       @db.VarChar(120)
+  customerId           Int
+  status               ProjectStatus @default(DESIGN)
+  description          String?       @db.Text
+  customerFactory      String?       @db.VarChar(255)
+  lineName             String?       @db.VarChar(255)
+  plcBrand             String?       @db.VarChar(120)
+  plcModel             String?       @db.VarChar(120)
+  plcSoftwareVersion   String?       @db.VarChar(120)
+  hmiBrand             String?       @db.VarChar(120)
+  hmiModel             String?       @db.VarChar(120)
+  hmiSoftwareVersion   String?       @db.VarChar(120)
+  robotBrand           String?       @db.VarChar(120)
+  robotModel           String?       @db.VarChar(120)
+  robotController      String?       @db.VarChar(120)
+  robotSoftwareVersion String?       @db.VarChar(120)
+  electricalDrawingNo  String?       @db.VarChar(120)
+  createdById          Int?
+  updatedById          Int?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  archivedAt           DateTime?
+  deletedAt            DateTime?
+
+  customer             Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdBy            User?                 @relation("ProjectCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy            User?                 @relation("ProjectUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  files                ProjectFile[]
+  revisions            ProjectRevision[]
+  commissioningRecords CommissioningRecord[]
+  serviceRecords       ServiceRecord[]
+  activityLogs         ActivityLog[]         @relation("ProjectActivity")
+  tags                 ProjectTag[]
+
+  @@index([projectCode])
+  @@index([serialNumber])
+  @@index([customerId])
+  @@index([status])
+  @@index([machineName])
+  @@index([plcBrand])
+  @@index([hmiBrand])
+  @@index([robotBrand])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([deletedAt])
+}
+
+model ProjectRevision {
+  id                Int      @id @default(autoincrement())
+  projectId         Int
+  revisionNo        String   @db.VarChar(30)
+  revisionDate      DateTime
+  responsibleUserId Int?
+  explanation       String   @db.Text
+  createdAt         DateTime @default(now())
+
+  project         Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  responsibleUser User?   @relation("ProjectRevisionResponsibleUser", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, revisionNo])
+  @@index([projectId])
+  @@index([revisionDate])
+  @@index([responsibleUserId])
+}
+
+model ProjectFile {
+  id               Int             @id @default(autoincrement())
+  projectId        Int
+  category         FileCategory
+  platform         String?         @db.VarChar(120)
+  originalFileName String          @db.VarChar(255)
+  storedFileName   String          @db.VarChar(255)
+  storageProvider  StorageProvider @default(LOCAL)
+  storagePath      String          @db.VarChar(1024)
+  fileSize         BigInt
+  checksum         String          @db.Char(64)
+  currentVersionNo String          @db.VarChar(30)
+  uploadedById     Int?
+  uploadedAt       DateTime        @default(now())
+  deletedAt        DateTime?
+  deletedById      Int?
+
+  project    Project       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  uploadedBy User?         @relation("ProjectFileUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  versions   FileVersion[]
+
+  @@index([projectId])
+  @@index([category])
+  @@index([platform])
+  @@index([uploadedAt])
+  @@index([checksum])
+  @@index([deletedAt])
+  @@index([projectId, category])
+}
+
+model FileVersion {
+  id               Int             @id @default(autoincrement())
+  fileId           Int
+  versionNo        String          @db.VarChar(30)
+  changeNote       String?         @db.Text
+  originalFileName String          @db.VarChar(255)
+  storedFileName   String          @db.VarChar(255)
+  storageProvider  StorageProvider @default(LOCAL)
+  storagePath      String          @db.VarChar(1024)
+  fileSize         BigInt
+  checksum         String          @db.Char(64)
+  uploadedById     Int?
+  uploadedAt       DateTime        @default(now())
+
+  file       ProjectFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  uploadedBy User?       @relation("FileVersionUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@unique([fileId, versionNo])
+  @@index([fileId])
+  @@index([uploadedById])
+  @@index([uploadedAt])
+  @@index([checksum])
+}
+
+model CommissioningRecord {
+  id                      Int       @id @default(autoincrement())
+  projectId               Int
+  commissioningDate       DateTime
+  commissioningEngineerId Int?
+  notes                   String?   @db.Text
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  deletedAt               DateTime?
+
+  project               Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  commissioningEngineer User?   @relation("CommissioningRecordEngineer", fields: [commissioningEngineerId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([commissioningDate])
+  @@index([commissioningEngineerId])
+  @@index([deletedAt])
+}
+
+model ServiceRecord {
+  id          Int       @id @default(autoincrement())
+  projectId   Int
+  serviceDate DateTime
+  engineerId  Int?
+  issue       String    @db.Text
+  actionTaken String    @db.Text
+  result      String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  engineer User?   @relation("ServiceRecordEngineer", fields: [engineerId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([serviceDate])
+  @@index([engineerId])
+  @@index([deletedAt])
+}
+
+model ActivityLog {
+  id         Int            @id @default(autoincrement())
+  userId     Int?
+  projectId  Int?
+  action     ActivityAction
+  entityType String         @db.VarChar(80)
+  entityId   Int?
+  details    String?        @db.Text
+  ipAddress  String?        @db.VarChar(45)
+  userAgent  String?        @db.VarChar(500)
+  createdAt  DateTime       @default(now())
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  project Project? @relation("ProjectActivity", fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model SystemSettings {
+  id                     Int      @id @default(1)
+  companyName            String   @default("Engineering Archive") @db.VarChar(255)
+  companyLogoUrl         String?  @db.VarChar(1024)
+  storageRoot            String   @db.VarChar(1024)
+  fileBackupLocation     String?  @db.VarChar(1024)
+  databaseBackupSchedule String?  @db.VarChar(120)
+  fileBackupSchedule     String?  @db.VarChar(120)
+  maximumUploadSizeMb    Int      @default(2048)
+  departments            Json
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model Tag {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(80)
+  createdAt DateTime @default(now())
+
+  projects ProjectTag[]
+}
+
+model ProjectTag {
+  projectId Int
+  tagId     Int
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Restrict)
+
+  @@id([projectId, tagId])
+  @@index([tagId])
+}
