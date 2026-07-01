@@ -40,10 +40,14 @@ export interface BackupHistoryItem {
 }
 
 export interface BackupVerificationResult {
-  verifiedFiles: number;
-  missingFiles: number;
-  mismatchedFiles: number;
-  corruptedFiles: number;
+  verified: number;
+  verifiedWithTimestampWarning: number;
+  missing: number;
+  checksumMismatch: number;
+  sizeMismatch: number;
+  corrupted: number;
+  failed: number;
+  warnings: string[];
   totalFiles: number;
   totalSize: bigint;
   status: "PASSED" | "FAILED";
@@ -51,7 +55,6 @@ export interface BackupVerificationResult {
   startTime: Date;
   finishTime: Date;
   destination: string;
-  issues: string[];
 }
 
 export interface BackupStatusDto {

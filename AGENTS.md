@@ -37,6 +37,7 @@ Completed features:
 * Editable system settings persisted in the database.
 * Project storage backup system for ADMIN users using the configured File Backup Location, with validation, incremental copy, persisted last-run status, and audit logging.
 * Backup history and verification: every backup run is stored, Settings shows run history, and ADMIN users can verify backup integrity against `STORAGE_ROOT/projects`.
+* Backup folder UX copies the configured backup path for Windows Explorer because browsers cannot directly open server-local folders.
 
 Current architecture:
 
@@ -46,7 +47,7 @@ Current architecture:
 * Prisma stores metadata; actual files stay on disk under `STORAGE_ROOT`.
 * API routes use consistent JSON success/error responses.
 * Backup service copies `STORAGE_ROOT/projects` to the configured external/local/NAS destination while preserving directory structure, filenames, and timestamps.
-* Backup verification compares source and backup folders for missing files, size changes, modified date changes, and checksum mismatches where metadata checksums exist.
+* Backup verification compares source and backup folders using SHA256 first, file size second, and modified date only as a warning when checksum is unavailable.
 
 Database changes:
 

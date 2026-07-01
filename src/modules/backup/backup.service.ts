@@ -284,10 +284,12 @@ export async function verifyProjectStorageBackup(user: AuthenticatedUser): Promi
       details: [
         `Backup verification ${result.status}.`,
         `Destination: ${destinationRoot}.`,
-        `Verified: ${result.verifiedFiles}.`,
-        `Missing: ${result.missingFiles}.`,
-        `Mismatched: ${result.mismatchedFiles}.`,
-        `Corrupted: ${result.corruptedFiles}.`,
+        `Verified: ${result.verified}.`,
+        `Verified with timestamp warning: ${result.verifiedWithTimestampWarning}.`,
+        `Missing: ${result.missing}.`,
+        `Checksum mismatch: ${result.checksumMismatch}.`,
+        `Size mismatch: ${result.sizeMismatch}.`,
+        `Corrupted: ${result.corrupted}.`,
       ].join(" "),
     });
 
@@ -347,22 +349,25 @@ async function verifyProjectsMirror(input: {
   destination: string;
 }): Promise<BackupVerificationResult> {
   const summary = {
-    verifiedFiles: 0,
-    missingFiles: 0,
-    mismatchedFiles: 0,
-    corruptedFiles: 0,
+    verified: 0,
+    verifiedWithTimestampWarning: 0,
+    missing: 0,
+    checksumMismatch: 0,
+    sizeMismatch: 0,
+    corrupted: 0,
     totalFiles: 0,
     totalSize: BigInt(0),
-    issues: [] as string[],
+    warnings: [] as string[],
   };
 
   await walkAndVerify(input.sourceRoot, input.sourceRoot, input.destinationRoot, input.storageRoot, input.checksumByRelativePath, summary);
 
   const finishTime = new Date();
-  const failed = summary.missingFiles > 0 || summary.mismatchedFiles > 0 || summary.corruptedFiles > 0;
+  const failed = summary.missing + summary.checksumMismatch + summary.sizeMismatch + summary.corrupted;
 
   return {
     ...summary,
+    failed,
     status: failed ? "FAILED" : "PASSED",
     elapsedMs: finishTime.getTime() - input.startedAt.getTime(),
     startTime: input.startedAt,
@@ -378,13 +383,15 @@ async function walkAndVerify(
   storageRoot: string,
   checksumByRelativePath: Map<string, string>,
   summary: {
-    verifiedFiles: number;
-    missingFiles: number;
-    mismatchedFiles: number;
-    corruptedFiles: number;
+    verified: number;
+    verifiedWithTimestampWarning: number;
+    missing: number;
+    checksumMismatch: number;
+    sizeMismatch: number;
+    corrupted: number;
     totalFiles: number;
     totalSize: bigint;
-    issues: string[];
+    warnings: string[];
   },
 ): Promise<void> {
   const entries = await readdir(current, { withFileTypes: true });
@@ -408,47 +415,54 @@ async function walkAndVerify(
     const sourceStat = await stat(sourcePath);
     summary.totalSize += BigInt(sourceStat.size);
 
-    const issueCountBefore = summary.issues.length;
-
     try {
       const destinationStat = await stat(destinationPath);
 
       if (!destinationStat.isFile()) {
-        summary.missingFiles += 1;
-        addVerificationIssue(summary.issues, `${relativeFromProjects}: destination is not a file.`);
+        summary.missing += 1;
+        addVerificationIssue(summary.warnings, `${relativeFromProjects}: destination is not a file.`);
         continue;
-      }
-
-      let hasMetadataMismatch = false;
-
-      if (destinationStat.size !== sourceStat.size) {
-        hasMetadataMismatch = true;
-        addVerificationIssue(summary.issues, `${relativeFromProjects}: size mismatch.`);
-      }
-
-      if (Math.abs(destinationStat.mtime.getTime() - sourceStat.mtime.getTime()) >= 1000) {
-        hasMetadataMismatch = true;
-        addVerificationIssue(summary.issues, `${relativeFromProjects}: modified date mismatch.`);
-      }
-
-      if (hasMetadataMismatch) {
-        summary.mismatchedFiles += 1;
       }
 
       const storageRelativePath = normalizeRelative(path.relative(storageRoot, sourcePath));
       const checksum = checksumByRelativePath.get(storageRelativePath);
 
-      if (checksum && (await calculateSha256(destinationPath)) !== checksum) {
-        summary.corruptedFiles += 1;
-        addVerificationIssue(summary.issues, `${relativeFromProjects}: checksum mismatch.`);
+      if (checksum) {
+        try {
+          if ((await calculateSha256(destinationPath)) === checksum) {
+            summary.verified += 1;
+          } else {
+            summary.checksumMismatch += 1;
+            addVerificationIssue(summary.warnings, `${relativeFromProjects}: checksum mismatch.`);
+          }
+        } catch {
+          summary.corrupted += 1;
+          addVerificationIssue(summary.warnings, `${relativeFromProjects}: backup file is unreadable or corrupted.`);
+        }
+        continue;
       }
 
-      if (summary.issues.length === issueCountBefore) {
-        summary.verifiedFiles += 1;
+      if (destinationStat.size !== sourceStat.size) {
+        summary.sizeMismatch += 1;
+        addVerificationIssue(summary.warnings, `${relativeFromProjects}: size mismatch.`);
+        continue;
       }
-    } catch {
-      summary.missingFiles += 1;
-      addVerificationIssue(summary.issues, `${relativeFromProjects}: missing from backup.`);
+
+      if (Math.abs(destinationStat.mtime.getTime() - sourceStat.mtime.getTime()) >= 1000) {
+        summary.verifiedWithTimestampWarning += 1;
+        addVerificationIssue(summary.warnings, `${relativeFromProjects}: modified date differs but file size matches.`);
+        continue;
+      }
+
+      summary.verified += 1;
+    } catch (error) {
+      if (isFileNotFoundError(error)) {
+        summary.missing += 1;
+        addVerificationIssue(summary.warnings, `${relativeFromProjects}: missing from backup.`);
+      } else {
+        summary.corrupted += 1;
+        addVerificationIssue(summary.warnings, `${relativeFromProjects}: backup file is unreadable or corrupted.`);
+      }
     }
   }
 }
@@ -675,6 +689,10 @@ function addVerificationIssue(issues: string[], issue: string): void {
   if (issues.length < 100) {
     issues.push(issue);
   }
+}
+
+function isFileNotFoundError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "ENOENT";
 }
 
 function buildActivityDetails(summary: BackupRunSummary): string {
