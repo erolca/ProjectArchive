@@ -1,202 +1,457 @@
 ﻿# ProjectArchive
 # Industrial Digital Machine Archive
 
-A modern web-based platform for managing industrial automation projects and complete machine digital archives.
+> **Enterprise Digital Archive Platform for Industrial Automation Projects**
+
+ProjectArchive is a modern web-based platform designed to manage the complete lifecycle of industrial automation projects.
+
+Instead of storing PLC programs, robot backups, electrical drawings, FAT documents, manuals, photos and engineering files across multiple folders, USB drives and personal computers, ProjectArchive centralizes everything into a secure, searchable and version-controlled system.
 
 ---
 
-## Overview
+# Features
 
-Industrial Digital Machine Archive is designed to centralize all engineering assets of an automation project in a secure, version-controlled environment.
+## Authentication & Security
 
-Instead of storing PLC programs, robot backups, electrical drawings, FAT documents, photos and service files across different folders and computers, everything is archived inside a single application.
-
-The platform provides project management, user management, version history, activity logging and secure file storage for industrial machines.
-
----
-
-## Key Features
-
-### Authentication & Security
-
-* JWT Authentication
-* Role-based authorization
-* User Management
-* Password management
-* Activity logging
+- JWT Authentication
+- Secure Login
+- User Profile
+- Role-Based Authorization
+- User Management
+- Department Management
+- Password Reset
+- Activity Logging
+- Audit Trail
 
 ---
 
-### Project Management
+# Project Management
 
-* Create and manage projects
-* Customer information
-* Machine information
-* Project status
-* Search, filter and pagination
+Manage complete machine projects.
 
----
+Supported information:
 
-### Machine Digital Archive
+- Project Code
+- Customer
+- Machine Name
+- Machine Type
+- PLC Brand
+- Robot Brand
+- HMI Brand
+- Status
+- Description
 
-Supported archive sections:
+Additional features:
 
-* PLC
-* HMI
-* Robot
-* Vision
-* Camera
-* Electrical
-* Mechanical
-* Pneumatic
-* Documents
-* Photos
-* Videos
-* FAT
-* SAT
-* Service
-* Commissioning
-* Spare Parts
-* Backups
-
-Each section supports:
-
-* File Upload
-* File Download
-* Version History
-* Latest Version Badge
-* SHA256 Hash
-* Upload Date
-* Uploaded By
-* File Size
+- Search
+- Filtering
+- Sorting
+- Pagination
 
 ---
 
-### Dashboard
+# Machine Digital Archive
 
-Dashboard provides real-time statistics including:
+Every project contains dedicated engineering archive sections.
 
-* Total Projects
-* Active Projects
-* Customers
-* PLC Files
-* Robot Files
-* HMI Files
-* Electrical Files
-* Mechanical Files
-* Vision Files
-* FAT Documents
-* SAT Documents
-* Recent Activities
+Supported categories
 
----
-
-### Activity Log
-
-Tracks all important operations.
-
-Examples:
-
-* User Login
-* Project Created
-* File Uploaded
-* File Downloaded
-* Password Reset
-* User Updated
-* Backup Executed
+- PLC
+- HMI
+- Robot
+- Vision
+- Camera
+- Electrical
+- Mechanical
+- Pneumatic
+- Documents
+- Photos
+- Videos
+- FAT
+- SAT
+- Spare Parts
+- Service
+- Commissioning
+- Backups
 
 ---
 
-## Technology Stack
+# File Management
 
-Frontend
+Every uploaded file supports
 
-* Next.js 15
-* React
-* TypeScript
+- Upload
+- Download
+- Version History
+- Latest Version Badge
+- SHA256 Checksum
+- File Size
+- Upload Date
+- Uploaded By
 
-Backend
+Supported archive formats
 
-* Next.js API Routes
-* Prisma ORM
+- PDF
+- DOCX
+- XLSX
+- PPTX
+- DWG
+- DXF
+- CSV
+- ZIP
+- RAR
+- 7Z
 
-Database
-
-* MariaDB
-
-Storage
-
-* Local Storage Provider
-
-Authentication
-
-* JWT
-
----
-
-## Current Version
-
-Version
-
-v1.0.0
+Executable files are blocked for security.
 
 ---
 
-## Roadmap
+# Dashboard
 
-### v1.1
+Real-time statistics
 
-* Backup System
-* Scheduled Backup
-* External HDD / NAS Support
-
-### v1.2
-
-* Intelligent Archive Engine
-* ZIP / RAR / 7Z Analysis
-* Archive Preview
-
-### v1.3
-
-* PDF Preview
-* DWG Metadata
-* Search Inside Archives
-
-### v2.0
-
-* Multi-user Server Edition
-* Active Directory Integration
-* Automatic Updates
-* HTTPS Support
-* AI-assisted Engineering Archive
+- Total Projects
+- Active Projects
+- Customers
+- Users
+- PLC Files
+- Robot Files
+- HMI Files
+- Electrical Files
+- Mechanical Files
+- Vision Files
+- FAT Documents
+- SAT Documents
+- Service Files
+- Spare Parts Files
+- Recent Activity
 
 ---
 
-## Installation
+# Backup & Disaster Recovery
 
-```bash
-npm install
-npx prisma migrate dev
-npm run seed
-npm run dev
+Enterprise backup system for engineering archives.
+
+Features
+
+- Incremental Backup
+- Backup History
+- Backup Verification
+- SHA256 Verification
+- Timestamp-aware Validation
+- External HDD Support
+- NAS Support
+- Local Storage Support
+- Activity Logging
+- Administrator Only Execution
+
+Backup Statistics
+
+- Copied Files
+- Skipped Files
+- Failed Files
+- Total Files
+- Total Size
+- Backup Duration
+
+Verification
+
+- SHA256 Comparison
+- Size Comparison
+- Timestamp Warning
+- Missing File Detection
+- Corrupted File Detection
+
+---
+
+# Activity Log
+
+Every important action is recorded.
+
+Examples
+
+- User Login
+- User Logout
+- User Created
+- User Updated
+- Password Reset
+- Project Created
+- Project Updated
+- File Uploaded
+- File Downloaded
+- Backup Started
+- Backup Completed
+- Backup Failed
+- Backup Verification Started
+- Backup Verification Completed
+- Backup Verification Failed
+
+---
+
+# System Settings
+
+Configurable settings
+
+- Company Name
+- Departments
+- Storage Provider
+- Storage Root
+- File Backup Location
+- Maximum Upload Size
+
+---
+
+# Technology Stack
+
+## Frontend
+
+- Next.js 15
+- React
+- TypeScript
+
+## Backend
+
+- Next.js API Routes
+- Prisma ORM
+
+## Database
+
+- MariaDB
+
+## Authentication
+
+- JWT
+
+## Storage
+
+- Local Storage Provider
+
+---
+
+# Folder Structure
+
+```
+storage/
+
+└── projects/
+
+    └── PRJ-XXXX
+
+        ├── PLC
+
+        ├── HMI
+
+        ├── Robot
+
+        ├── Vision
+
+        ├── Camera
+
+        ├── Electrical
+
+        ├── Mechanical
+
+        ├── Pneumatic
+
+        ├── Documents
+
+        ├── Photos
+
+        ├── Videos
+
+        ├── FAT
+
+        ├── SAT
+
+        ├── Service
+
+        ├── Commissioning
+
+        ├── SpareParts
+
+        └── Backups
 ```
 
 ---
 
-## Default Administrator
+# Installation
 
-Username
-admin
-Password
-Configured through the `.env` file.
+Clone repository
+
+```bash
+git clone https://github.com/erolca/ProjectArchive.git
+```
+
+Install packages
+
+```bash
+npm install
+```
+
+Configure
+
+```text
+.env
+```
+
+Run database migration
+
+```bash
+npx prisma migrate dev
+```
+
+Seed default administrator
+
+```bash
+npm run seed
+```
+
+Start development server
+
+```bash
+npm run dev
+```
+
+Open
+
+```
+http://localhost:3000
+```
+
 ---
 
-## License
+# Default Administrator
 
-Private project.
+Configured inside
+
+```
+.env
+```
+
+Example
+
+```
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=********
+```
+
+---
+
+# Security
+
+ProjectArchive includes multiple security layers.
+
+- JWT Authentication
+- Role Based Authorization
+- Audit Logging
+- Activity Tracking
+- SHA256 File Verification
+- Safe Upload Validation
+- Executable File Blocking
+- Path Traversal Protection
+- Backup Destination Validation
+
+---
+
+# Current Version
+
+**v1.1.0**
+
+Completed
+
+- Authentication
+- User Management
+- Project Management
+- Machine Digital Archive
+- File Versioning
+- Dashboard
+- Settings
+- Backup System
+- Backup History
+- Backup Verification
+- Activity Logging
+
+---
+
+# Roadmap
+
+## v1.2
+
+Disaster Recovery
+
+- Restore Wizard
+- Restore Preview
+- Restore Selected Project
+- Restore Selected Files
+- Restore Report
+
+---
+
+## v1.3
+
+Scheduled Backup
+
+- Daily Backup
+- Weekly Backup
+- Monthly Backup
+- Backup Retention
+- Automatic Cleanup
+
+---
+
+## v1.4
+
+Document Intelligence
+
+- PDF Preview
+- Image Gallery
+- Video Preview
+- ZIP Explorer
+- DWG Metadata
+- Rich File Preview
+
+---
+
+## v1.5
+
+Enterprise Search
+
+- Global Search
+- OCR Support
+- Search Inside Documents
+- Search Inside Archives
+
+---
+
+## v2.0
+
+AI Engineering Assistant
+
+- AI Project Search
+- Engineering Knowledge Base
+- PLC Program Analysis
+- Robot Backup Analysis
+- Document Assistant
+- Natural Language Search
+
+---
+
+# Why ProjectArchive?
+
+Industrial automation projects generate thousands of engineering files during a machine's lifecycle.
+
+ProjectArchive centralizes every engineering asset into a single secure platform, eliminating scattered folders, inconsistent backups and undocumented revisions.
+
+It provides a single source of truth for industrial automation projects.
+
+---
+
+# License
+
+Private Project
 
 Copyright © 2026
 
 Industrial Digital Machine Archive
 
-All rights reserved.
+All Rights Reserved.
