@@ -5,6 +5,9 @@ export interface PrepareUploadInput {
   projectId: number;
   category: FileCategory;
   platform?: PlatformCode | string | null;
+  manufacturer?: string | null;
+  softwareName?: string | null;
+  softwareVersion?: string | null;
   originalFileName: string;
   fileSize: bigint | number;
   versionNo?: string;
@@ -17,6 +20,9 @@ export interface PreparedUpload {
   projectCode: string;
   category: FileCategory;
   platform: PlatformCode | "GENERAL";
+  manufacturer?: string | null;
+  softwareName?: string | null;
+  softwareVersion?: string | null;
   originalFileName: string;
   storedFileName: string;
   storagePath: ResolvedStoragePath;

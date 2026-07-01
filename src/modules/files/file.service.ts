@@ -1,6 +1,7 @@
 import { ActivityAction, type FileCategory, type Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { buildStoredFileName, resolveCategoryPlatform } from "../../lib/file-utils";
+import { resolveEngineeringMetadataCode } from "../../lib/engineering-metadata";
 import { requirePermission } from "../auth/permissions";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { logActivity } from "../activity/activity.service";
@@ -30,10 +31,11 @@ export async function prepareFileUpload(user: AuthenticatedUser, input: PrepareU
   const data = prepareUploadSchema.parse(input);
   const project = await requireActiveProject(data.projectId);
   const versionNo = data.versionNo || "V1.0";
+  const platformCode = resolveUploadPlatformCode(data.category, data.manufacturer, data.softwareName, data.platform);
   const classification = resolveCategoryPlatform({
     category: data.category,
     originalFileName: data.originalFileName,
-    platform: data.platform,
+    platform: platformCode,
   });
 
   if (classification.warnings.length > 0 && !data.confirmWarnings) {
@@ -61,6 +63,9 @@ export async function prepareFileUpload(user: AuthenticatedUser, input: PrepareU
     storedFileName: destination.storedFileName,
     storagePath: destination.storagePath,
     versionNo,
+    manufacturer: data.manufacturer,
+    softwareName: data.softwareName,
+    softwareVersion: data.softwareVersion,
     warnings: classification.warnings,
   };
 }
@@ -70,10 +75,11 @@ export async function finalizeFileUpload(user: AuthenticatedUser, input: Finaliz
 
   const data = finalizeUploadSchema.parse(input);
   const project = await requireActiveProject(data.projectId);
+  const platformCode = resolveUploadPlatformCode(data.category, data.manufacturer, data.softwareName, data.platform);
   const classification = resolveCategoryPlatform({
     category: data.category,
     originalFileName: data.originalFileName,
-    platform: data.platform,
+    platform: platformCode,
   });
 
   if (classification.warnings.length > 0 && !data.confirmWarnings) {
@@ -100,6 +106,9 @@ export async function finalizeFileUpload(user: AuthenticatedUser, input: Finaliz
         projectId: project.id,
         category: data.category,
         platform: classification.platform === "GENERAL" ? null : classification.platform,
+        manufacturer: data.manufacturer,
+        softwareName: data.softwareName,
+        softwareVersion: data.softwareVersion,
         originalFileName: data.originalFileName,
         storedFileName: destination.storedFileName,
         storagePath: destination.storagePath.relativePath,
@@ -115,6 +124,9 @@ export async function finalizeFileUpload(user: AuthenticatedUser, input: Finaliz
         fileId: projectFile.id,
         versionNo,
         changeNote: data.changeNote,
+        manufacturer: data.manufacturer,
+        softwareName: data.softwareName,
+        softwareVersion: data.softwareVersion,
         originalFileName: data.originalFileName,
         storedFileName: destination.storedFileName,
         storagePath: destination.storagePath.relativePath,
@@ -343,6 +355,15 @@ export function buildStoredFileDestination(input: {
     storedFileName,
     storagePath,
   };
+}
+
+function resolveUploadPlatformCode(
+  category: FileCategory,
+  manufacturer?: string | null,
+  softwareName?: string | null,
+  legacyPlatform?: string | null,
+): string | null | undefined {
+  return resolveEngineeringMetadataCode(category, manufacturer, softwareName) || legacyPlatform;
 }
 
 export async function moveTempFileIntoStorage(

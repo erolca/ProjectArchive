@@ -39,6 +39,7 @@ Completed features:
 * Backup history and verification: every backup run is stored, Settings shows run history, and ADMIN users can verify backup integrity against `STORAGE_ROOT/projects`.
 * Backup folder UX copies the configured backup path for Windows Explorer because browsers cannot directly open server-local folders.
 * Disaster recovery restore wizard: ADMIN users can analyze backup history entries, preview restore scope/conflicts, dry-run, and restore the full archive, one project, selected categories, or selected files.
+* Engineering metadata system for uploads: category-driven manufacturer and platform/software dropdowns persist manufacturer, software name, and software version while preserving the legacy internal platform code.
 
 Current architecture:
 
@@ -50,6 +51,7 @@ Current architecture:
 * Backup service copies `STORAGE_ROOT/projects` to the configured external/local/NAS destination while preserving directory structure, filenames, and timestamps.
 * Backup verification compares source and backup folders using SHA256 first, file size second, and modified date only as a warning when checksum is unavailable.
 * Restore service reads selected `BackupRun` destinations, validates all source/destination paths, and restores into `STORAGE_ROOT/projects` unless an explicit alternative restore location is selected.
+* File upload metadata uses structured engineering definitions and maps friendly selections such as Beckhoff/TwinCAT 3 to uppercase internal platform codes for compatibility.
 
 Database changes:
 
@@ -60,6 +62,7 @@ Database changes:
 * Added last file-backup result fields to system settings and backup audit actions.
 * Added backup run history table and backup verification audit actions.
 * Added restore audit actions for disaster recovery operations.
+* Added engineering metadata fields to project files and file versions.
 
 API endpoints:
 

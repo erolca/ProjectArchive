@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { StatusBadge } from "../../../components/ui/status-badge";
 import { downloadApiFile, getApi, postFormApi } from "../../../lib/api-client";
+import { ENGINEERING_METADATA_OPTIONS, resolveEngineeringMetadataCode } from "../../../lib/engineering-metadata";
 import { formatBytes, formatDate, formatDateTime, shortHash } from "../../../lib/format";
 
 interface ProjectDetail {
@@ -111,6 +112,9 @@ interface ProjectFileRow {
   id: number;
   category: string;
   platform?: string | null;
+  manufacturer?: string | null;
+  softwareName?: string | null;
+  softwareVersion?: string | null;
   originalFileName: string;
   storedFileName: string;
   fileSize: string;
@@ -333,7 +337,7 @@ function FileTabContent({
           <thead className="bg-[#0f151d] text-xs uppercase text-[#9fb0bf]">
             <tr>
               <th className="px-4 py-3">File Name</th>
-              <th className="px-4 py-3">Platform</th>
+              <th className="px-4 py-3">Engineering Metadata</th>
               <th className="px-4 py-3">Latest Version</th>
               <th className="px-4 py-3">Size</th>
               <th className="px-4 py-3">SHA256</th>
@@ -353,7 +357,7 @@ function FileTabContent({
               files.map((file) => (
                 <tr key={file.id} className="border-t border-[#263545] text-[#d9e5ef]">
                   <td className="px-4 py-3">{file.originalFileName}</td>
-                  <td className="px-4 py-3">{file.platform || "-"}</td>
+                  <td className="px-4 py-3">{formatEngineeringMetadata(file)}</td>
                   <td className="px-4 py-3">
                     <span className="rounded border border-[#22c55e] bg-[#0d2618] px-2 py-1 text-xs font-semibold text-[#86efac]">
                       {file.versions?.[0]?.versionNo || file.currentVersionNo} Latest
@@ -469,10 +473,16 @@ function UploadDialog({
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [category, setCategory] = useState(categoryByTab[activeTab] || "DOCUMENT");
-  const [platform, setPlatform] = useState("");
+  const [manufacturer, setManufacturer] = useState("");
+  const [softwareName, setSoftwareName] = useState("");
+  const [softwareVersion, setSoftwareVersion] = useState("");
   const [versionNo, setVersionNo] = useState("V1.0");
   const [changeNote, setChangeNote] = useState("");
   const [confirmWarnings, setConfirmWarnings] = useState(false);
+  const metadataOptions = ENGINEERING_METADATA_OPTIONS.filter((option) => option.category === category);
+  const manufacturerOptions = Array.from(new Set(metadataOptions.map((option) => option.manufacturer)));
+  const platformOptions = metadataOptions.filter((option) => option.manufacturer === manufacturer);
+  const platformCode = resolveEngineeringMetadataCode(category, manufacturer, softwareName);
 
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -491,8 +501,20 @@ function UploadDialog({
       formData.set("versionNo", versionNo);
       formData.set("confirmWarnings", String(confirmWarnings));
 
-      if (platform) {
-        formData.set("platform", platform);
+      if (platformCode) {
+        formData.set("platform", platformCode);
+      }
+
+      if (manufacturer) {
+        formData.set("manufacturer", manufacturer);
+      }
+
+      if (softwareName) {
+        formData.set("softwareName", softwareName);
+      }
+
+      if (softwareVersion) {
+        formData.set("softwareVersion", softwareVersion);
       }
 
       if (changeNote) {
@@ -533,7 +555,11 @@ function UploadDialog({
             <SelectField
               label="Category"
               value={category}
-              onChange={setCategory}
+              onChange={(value) => {
+                setCategory(value);
+                setManufacturer("");
+                setSoftwareName("");
+              }}
               options={[
                 "PLC",
                 "HMI",
@@ -555,7 +581,22 @@ function UploadDialog({
                 "PHOTO_VIDEO",
               ]}
             />
-            <TextInput label="Platform" value={platform} onChange={setPlatform} placeholder="SIEMENS_TIA" />
+            <SelectField
+              label="Manufacturer"
+              value={manufacturer}
+              onChange={(value) => {
+                setManufacturer(value);
+                setSoftwareName("");
+              }}
+              options={["", ...manufacturerOptions]}
+            />
+            <SelectField
+              label="Platform / Software"
+              value={softwareName}
+              onChange={setSoftwareName}
+              options={["", ...platformOptions.map((option) => option.platform)]}
+            />
+            <TextInput label="Software Version" value={softwareVersion} onChange={setSoftwareVersion} placeholder="Optional" />
             <TextInput label="Version" value={versionNo} onChange={setVersionNo} placeholder="V1.0" />
             <label className="flex items-end gap-2 pb-2 text-sm text-[#c6d3df]">
               <input
@@ -655,7 +696,7 @@ function SelectField({
       >
         {options.map((option) => (
           <option key={option} value={option}>
-            {option}
+            {option || "Select"}
           </option>
         ))}
       </select>
@@ -688,6 +729,12 @@ function SummaryTile({ label, value }: { label: string; value: React.ReactNode }
       <div className="mt-1 text-sm font-semibold text-white">{value}</div>
     </div>
   );
+}
+
+function formatEngineeringMetadata(file: Pick<ProjectFileRow, "manufacturer" | "softwareName" | "softwareVersion" | "platform">): string {
+  const friendly = [file.manufacturer, file.softwareName, file.softwareVersion].filter(Boolean).join(" / ");
+
+  return friendly || file.platform || "-";
 }
 
 function categoryMatchesTab(category: string, tab: string): boolean {

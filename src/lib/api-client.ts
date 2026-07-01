@@ -45,7 +45,13 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     throw new Error(buildNonJsonError(response, responseText));
   }
 
-  const payload = JSON.parse(responseText) as ApiResponse<T>;
+  let payload: ApiResponse<T>;
+
+  try {
+    payload = JSON.parse(responseText) as ApiResponse<T>;
+  } catch {
+    throw new Error(`API returned invalid JSON (${response.status}).`);
+  }
 
   if (!payload.success) {
     throw new Error(payload.error.message);

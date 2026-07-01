@@ -216,6 +216,9 @@ model ProjectFile {
   projectId        Int
   category         FileCategory
   platform         String?         @db.VarChar(120)
+  manufacturer     String?         @db.VarChar(120)
+  softwareName     String?         @db.VarChar(160)
+  softwareVersion  String?         @db.VarChar(120)
   originalFileName String          @db.VarChar(255)
   storedFileName   String          @db.VarChar(255)
   storageProvider  StorageProvider @default(LOCAL)
@@ -235,6 +238,8 @@ model ProjectFile {
   @@index([projectId])
   @@index([category])
   @@index([platform])
+  @@index([manufacturer])
+  @@index([softwareName])
   @@index([uploadedAt])
   @@index([checksum])
   @@index([deletedAt])
@@ -246,6 +251,9 @@ model FileVersion {
   fileId           Int
   versionNo        String          @db.VarChar(30)
   changeNote       String?         @db.Text
+  manufacturer     String?         @db.VarChar(120)
+  softwareName     String?         @db.VarChar(160)
+  softwareVersion  String?         @db.VarChar(120)
   originalFileName String          @db.VarChar(255)
   storedFileName   String          @db.VarChar(255)
   storageProvider  StorageProvider @default(LOCAL)
