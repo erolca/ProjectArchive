@@ -38,6 +38,7 @@ Completed features:
 * Project storage backup system for ADMIN users using the configured File Backup Location, with validation, incremental copy, persisted last-run status, and audit logging.
 * Backup history and verification: every backup run is stored, Settings shows run history, and ADMIN users can verify backup integrity against `STORAGE_ROOT/projects`.
 * Backup folder UX copies the configured backup path for Windows Explorer because browsers cannot directly open server-local folders.
+* Disaster recovery restore wizard: ADMIN users can analyze backup history entries, preview restore scope/conflicts, dry-run, and restore the full archive, one project, selected categories, or selected files.
 
 Current architecture:
 
@@ -48,6 +49,7 @@ Current architecture:
 * API routes use consistent JSON success/error responses.
 * Backup service copies `STORAGE_ROOT/projects` to the configured external/local/NAS destination while preserving directory structure, filenames, and timestamps.
 * Backup verification compares source and backup folders using SHA256 first, file size second, and modified date only as a warning when checksum is unavailable.
+* Restore service reads selected `BackupRun` destinations, validates all source/destination paths, and restores into `STORAGE_ROOT/projects` unless an explicit alternative restore location is selected.
 
 Database changes:
 
@@ -57,6 +59,7 @@ Database changes:
 * Added audit actions for user lifecycle and archive uploads.
 * Added last file-backup result fields to system settings and backup audit actions.
 * Added backup run history table and backup verification audit actions.
+* Added restore audit actions for disaster recovery operations.
 
 API endpoints:
 
@@ -68,12 +71,13 @@ API endpoints:
 * Users: `GET/POST /api/users`, `PUT/DELETE /api/users/[id]`, `POST /api/users/[id]/password`
 * Settings: `GET/PUT /api/settings`
 * Backup: `GET /api/backup/status`, `GET /api/backup/history`, `POST /api/backup/run`, `POST /api/backup/verify`
+* Restore: `POST /api/restore/analyze`, `POST /api/restore/execute`
 
 Remaining roadmap:
 
 * Apply and verify migrations in clean environments.
 * Add automated tests for auth, permissions, project CRUD, upload/download, settings, and user management.
-* Add scheduled backup execution jobs and restore drills using backup history/verification results.
+* Add scheduled backup execution jobs and recurring restore drills using backup history, verification results, and restore dry-run reports.
 * Add admin screens for roles/permissions if permissions become configurable.
 * Add advanced search across project metadata, file metadata, checksums, and activity logs.
 * Add production deployment docs, monitoring, and backup restore procedures.

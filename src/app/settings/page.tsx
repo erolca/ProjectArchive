@@ -95,6 +95,86 @@ interface BackupVerificationResult {
   destination: string;
 }
 
+type RestoreMode = "ENTIRE_ARCHIVE" | "SINGLE_PROJECT" | "SELECTED_CATEGORIES" | "SELECTED_FILES";
+
+interface RestoreOptions {
+  dryRun: boolean;
+  replaceExistingFiles: boolean;
+  skipExistingFiles: boolean;
+  restoreToAlternativeLocation: string;
+}
+
+interface RestorePreviewFile {
+  relativePath: string;
+  projectCode: string;
+  category?: string | null;
+  size: string;
+  exists: boolean;
+  willRestore: boolean;
+  willOverwrite: boolean;
+  willSkip: boolean;
+  reason: string;
+}
+
+interface RestorePreview {
+  backupRunId: number;
+  mode: RestoreMode;
+  source: string;
+  destination: string;
+  filesToRestore: number;
+  existingFiles: number;
+  newFiles: number;
+  filesToOverwrite: number;
+  skippedFiles: number;
+  totalFiles: number;
+  totalSize: string;
+  estimatedDurationSeconds: number;
+  conflicts: RestorePreviewFile[];
+  files: RestorePreviewFile[];
+}
+
+interface RestoreReport {
+  status: string;
+  restored: number;
+  skipped: number;
+  failed: number;
+  totalSize: string;
+  durationMs: number;
+  destination: string;
+  progress: {
+    currentFile?: string | null;
+    totalFiles: number;
+    progressPercentage: number;
+    restoredFiles: number;
+    skippedFiles: number;
+    failedFiles: number;
+    elapsedMs: number;
+    remainingMs: number;
+  };
+  errors: string[];
+  preview: RestorePreview;
+}
+
+const RESTORE_CATEGORIES = [
+  "PLC",
+  "HMI",
+  "ROBOT",
+  "VISION",
+  "CAMERA",
+  "ELECTRICAL",
+  "MECHANICAL",
+  "PNEUMATIC",
+  "DOCUMENT",
+  "PHOTO",
+  "VIDEO",
+  "FAT",
+  "SAT",
+  "SERVICE",
+  "COMMISSIONING",
+  "SPARE_PARTS",
+  "BACKUP",
+];
+
 const emptySettings: SystemSettings = {
   id: 1,
   companyName: "",
@@ -123,6 +203,22 @@ export default function SettingsPage() {
   const [verificationResult, setVerificationResult] = useState<BackupVerificationResult | null>(null);
   const [showBackupPathFallback, setShowBackupPathFallback] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [restoreStep, setRestoreStep] = useState(1);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreStatus, setRestoreStatus] = useState("Select a backup history entry to begin.");
+  const [restoreBackupRunId, setRestoreBackupRunId] = useState<number | "">("");
+  const [restoreMode, setRestoreMode] = useState<RestoreMode>("ENTIRE_ARCHIVE");
+  const [restoreProjectCode, setRestoreProjectCode] = useState("");
+  const [restoreCategories, setRestoreCategories] = useState<string[]>([]);
+  const [restoreFiles, setRestoreFiles] = useState("");
+  const [restoreOptions, setRestoreOptions] = useState<RestoreOptions>({
+    dryRun: true,
+    replaceExistingFiles: false,
+    skipExistingFiles: true,
+    restoreToAlternativeLocation: "",
+  });
+  const [restorePreview, setRestorePreview] = useState<RestorePreview | null>(null);
+  const [restoreReport, setRestoreReport] = useState<RestoreReport | null>(null);
 
   useEffect(() => {
     void loadSettings();
@@ -242,6 +338,89 @@ export default function SettingsPage() {
 
     setShowBackupPathFallback(true);
     setStatus(`Backup folder: ${destination}`);
+  }
+
+  async function analyzeRestoreRequest() {
+    if (!restoreBackupRunId) {
+      setRestoreStatus("Select a backup history entry first.");
+      return;
+    }
+
+    setRestoreBusy(true);
+    setRestoreStatus("Analyzing selected backup.");
+
+    try {
+      const preview = await postApi<RestorePreview>("/api/restore/analyze", buildRestorePayload());
+      setRestorePreview(preview);
+      setRestoreReport(null);
+      setRestoreStep(3);
+      setRestoreStatus(`Analysis complete. ${preview.filesToRestore} files ready, ${preview.conflicts.length} conflicts detected.`);
+    } catch (error) {
+      setRestoreStatus(error instanceof Error ? error.message : "Restore analysis failed.");
+    } finally {
+      setRestoreBusy(false);
+    }
+  }
+
+  async function executeRestoreRequest() {
+    if (!restoreBackupRunId) {
+      setRestoreStatus("Select a backup history entry first.");
+      return;
+    }
+
+    setRestoreBusy(true);
+    setRestoreStep(6);
+    setRestoreStatus(restoreOptions.dryRun ? "Running restore dry run." : "Executing restore.");
+
+    try {
+      const report = await postApi<RestoreReport>("/api/restore/execute", buildRestorePayload());
+      setRestoreReport(report);
+      setRestorePreview(report.preview);
+      setRestoreStatus(`Restore ${report.status}. Restored ${report.restored}, skipped ${report.skipped}, failed ${report.failed}.`);
+    } catch (error) {
+      setRestoreStatus(error instanceof Error ? error.message : "Restore execution failed.");
+    } finally {
+      setRestoreBusy(false);
+    }
+  }
+
+  function buildRestorePayload() {
+    return {
+      backupRunId: restoreBackupRunId,
+      mode: restoreMode,
+      projectCode: restoreProjectCode || undefined,
+      categories: restoreCategories,
+      files: restoreFiles
+        .split(/\r?\n/)
+        .map((file) => file.trim())
+        .filter(Boolean),
+      options: {
+        dryRun: restoreOptions.dryRun,
+        replaceExistingFiles: restoreOptions.replaceExistingFiles,
+        skipExistingFiles: restoreOptions.skipExistingFiles,
+        restoreToAlternativeLocation: restoreOptions.restoreToAlternativeLocation || undefined,
+      },
+    };
+  }
+
+  function updateRestoreOption<K extends keyof RestoreOptions>(key: K, value: RestoreOptions[K]) {
+    setRestoreOptions((current) => {
+      if (key === "replaceExistingFiles" && value === true) {
+        return { ...current, replaceExistingFiles: true, skipExistingFiles: false };
+      }
+
+      if (key === "skipExistingFiles" && value === true) {
+        return { ...current, skipExistingFiles: true, replaceExistingFiles: false };
+      }
+
+      return { ...current, [key]: value };
+    });
+  }
+
+  function toggleRestoreCategory(category: string) {
+    setRestoreCategories((current) =>
+      current.includes(category) ? current.filter((item) => item !== category) : [...current, category],
+    );
   }
 
   function updateField<K extends keyof SystemSettings>(key: K, value: SystemSettings[K]) {
@@ -494,6 +673,166 @@ export default function SettingsPage() {
           </div>
         </SettingsPanel>
 
+        <SettingsPanel title="Disaster Recovery Restore Wizard" className="xl:col-span-2">
+          <div className="grid gap-2 md:grid-cols-6">
+            {[1, 2, 3, 4, 5, 6].map((step) => (
+              <button
+                key={step}
+                type="button"
+                onClick={() => setRestoreStep(step)}
+                className={`h-10 rounded-md border px-2 text-xs font-semibold ${
+                  restoreStep === step
+                    ? "border-[#2f80ed] bg-[#0f2440] text-white"
+                    : "border-[#263545] bg-[#0b0f14] text-[#9fb0bf]"
+                }`}
+              >
+                Step {step}
+              </button>
+            ))}
+          </div>
+
+          <div className="rounded-md border border-[#263545] bg-[#0b0f14] p-4 text-sm text-[#9fb0bf]">{restoreStatus}</div>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="grid gap-4">
+              {restoreStep === 1 ? (
+                <WizardBlock title="Step 1 - Select Backup History Entry">
+                  <select
+                    value={restoreBackupRunId}
+                    onChange={(event) => {
+                      setRestoreBackupRunId(event.target.value ? Number(event.target.value) : "");
+                      setRestorePreview(null);
+                      setRestoreReport(null);
+                    }}
+                    className="w-full rounded-md border border-[#263545] bg-[#06090d] px-3 py-2 text-sm text-white outline-none focus:border-[#2f80ed]"
+                  >
+                    <option value="">Select backup run</option>
+                    {backupHistory.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        #{item.id} - {formatDateTime(item.startedAt)} - {item.status} - {item.destination}
+                      </option>
+                    ))}
+                  </select>
+                </WizardBlock>
+              ) : null}
+
+              {restoreStep === 2 ? (
+                <WizardBlock title="Step 2 - Analyze Selected Backup">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <SelectField
+                      label="Restore Mode"
+                      value={restoreMode}
+                      onChange={(value) => setRestoreMode(value as RestoreMode)}
+                      options={[
+                        ["ENTIRE_ARCHIVE", "Restore entire archive"],
+                        ["SINGLE_PROJECT", "Restore single project"],
+                        ["SELECTED_CATEGORIES", "Restore selected categories"],
+                        ["SELECTED_FILES", "Restore selected files"],
+                      ]}
+                    />
+                    {restoreMode === "SINGLE_PROJECT" ? (
+                      <TextField label="Project Code" value={restoreProjectCode} onChange={setRestoreProjectCode} placeholder="PRJ-2026-001" />
+                    ) : null}
+                  </div>
+                  {restoreMode === "SELECTED_CATEGORIES" ? (
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      {RESTORE_CATEGORIES.map((category) => (
+                        <label key={category} className="flex items-center gap-2 rounded border border-[#263545] bg-[#06090d] px-3 py-2 text-sm text-[#d9e5ef]">
+                          <input
+                            type="checkbox"
+                            checked={restoreCategories.includes(category)}
+                            onChange={() => toggleRestoreCategory(category)}
+                          />
+                          {category}
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
+                  {restoreMode === "SELECTED_FILES" ? (
+                    <label>
+                      <span className="text-xs font-semibold uppercase text-[#9fb0bf]">Selected Files</span>
+                      <textarea
+                        value={restoreFiles}
+                        onChange={(event) => setRestoreFiles(event.target.value)}
+                        rows={5}
+                        placeholder="PRJ-2026-001/PLC/backup.zip"
+                        className="mt-1 w-full rounded-md border border-[#263545] bg-[#06090d] px-3 py-2 text-sm text-white outline-none focus:border-[#2f80ed]"
+                      />
+                    </label>
+                  ) : null}
+                  <ActionButton onClick={analyzeRestoreRequest} disabled={restoreBusy || !restoreBackupRunId} primary>
+                    {restoreBusy ? "Analyzing..." : "Analyze Backup"}
+                  </ActionButton>
+                </WizardBlock>
+              ) : null}
+
+              {restoreStep === 3 ? (
+                <WizardBlock title="Step 3 - Preview Restore">
+                  <RestorePreviewSummary preview={restorePreview} />
+                </WizardBlock>
+              ) : null}
+
+              {restoreStep === 4 ? (
+                <WizardBlock title="Step 4 - Conflict Detection">
+                  <RestoreConflictList preview={restorePreview} />
+                </WizardBlock>
+              ) : null}
+
+              {restoreStep === 5 ? (
+                <WizardBlock title="Step 5 - Restore Options">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <CheckboxField label="Dry Run" checked={restoreOptions.dryRun} onChange={(checked) => updateRestoreOption("dryRun", checked)} />
+                    <CheckboxField
+                      label="Replace Existing Files"
+                      checked={restoreOptions.replaceExistingFiles}
+                      onChange={(checked) => updateRestoreOption("replaceExistingFiles", checked)}
+                    />
+                    <CheckboxField
+                      label="Skip Existing Files"
+                      checked={restoreOptions.skipExistingFiles}
+                      onChange={(checked) => updateRestoreOption("skipExistingFiles", checked)}
+                    />
+                    <TextField
+                      label="Alternative Restore Location"
+                      value={restoreOptions.restoreToAlternativeLocation}
+                      onChange={(value) => updateRestoreOption("restoreToAlternativeLocation", value)}
+                      placeholder="Optional absolute path"
+                    />
+                  </div>
+                </WizardBlock>
+              ) : null}
+
+              {restoreStep === 6 ? (
+                <WizardBlock title="Step 6 - Execute Restore">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <ActionButton onClick={executeRestoreRequest} disabled={restoreBusy || !restorePreview} primary>
+                      {restoreBusy ? "Executing..." : restoreOptions.dryRun ? "Run Dry Run" : "Execute Restore"}
+                    </ActionButton>
+                    <ActionButton onClick={() => setRestoreStatus("Restore cancelled before execution.")}>Cancel Restore</ActionButton>
+                  </div>
+                  {restoreBusy ? (
+                    <div className="rounded-md border border-[#263545] bg-[#06090d] p-3 text-sm text-[#9fb0bf]">
+                      Restore request is running. Progress is returned in the final report for this synchronous operation.
+                    </div>
+                  ) : null}
+                  <RestoreReportView report={restoreReport} />
+                </WizardBlock>
+              ) : null}
+            </div>
+
+            <div className="rounded-md border border-[#263545] bg-[#0b0f14] p-4">
+              <div className="text-xs font-semibold uppercase text-[#64748b]">Restore Scope</div>
+              <div className="mt-3 grid gap-3 text-sm">
+                <StatusLine label="Backup Run" value={restoreBackupRunId ? `#${restoreBackupRunId}` : "Not selected"} />
+                <StatusLine label="Mode" value={restoreMode} />
+                <StatusLine label="Dry Run" value={restoreOptions.dryRun ? "Enabled" : "Disabled"} />
+                <StatusLine label="Existing Files" value={restoreOptions.replaceExistingFiles ? "Replace" : "Skip"} />
+                <StatusLine label="Destination" value={restoreOptions.restoreToAlternativeLocation || "Configured Storage Root"} />
+              </div>
+            </div>
+          </div>
+        </SettingsPanel>
+
         <SettingsPanel title="Departments">
           <div className="flex gap-2">
             <input
@@ -617,6 +956,165 @@ function ActionButton({
     >
       {children}
     </button>
+  );
+}
+
+function WizardBlock({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-md border border-[#263545] bg-[#0b0f14] p-4">
+      <h4 className="text-sm font-semibold text-white">{title}</h4>
+      <div className="mt-4 grid gap-4">{children}</div>
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<[string, string]>;
+}) {
+  return (
+    <label>
+      <span className="text-xs font-semibold uppercase text-[#9fb0bf]">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-1 w-full rounded-md border border-[#263545] bg-[#06090d] px-3 py-2 text-sm text-white outline-none focus:border-[#2f80ed]"
+      >
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function CheckboxField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="flex h-10 items-center gap-2 rounded-md border border-[#263545] bg-[#06090d] px-3 text-sm text-[#d9e5ef]">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
+function RestorePreviewSummary({ preview }: { preview: RestorePreview | null }) {
+  if (!preview) {
+    return <div className="rounded-md border border-[#263545] bg-[#06090d] p-3 text-sm text-[#9fb0bf]">Run analysis to generate a restore preview.</div>;
+  }
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricTile label="Files To Restore" value={String(preview.filesToRestore)} />
+        <MetricTile label="Existing Files" value={String(preview.existingFiles)} />
+        <MetricTile label="New Files" value={String(preview.newFiles)} />
+        <MetricTile label="Overwrite" value={String(preview.filesToOverwrite)} />
+        <MetricTile label="Skipped" value={String(preview.skippedFiles)} />
+        <MetricTile label="Total Files" value={String(preview.totalFiles)} />
+        <MetricTile label="Total Size" value={formatBytes(preview.totalSize)} />
+        <MetricTile label="Estimated Duration" value={`${preview.estimatedDurationSeconds}s`} />
+      </div>
+      <PathDisplay label="Source" value={preview.source} />
+      <PathDisplay label="Destination" value={preview.destination} />
+      <RestoreFileTable files={preview.files.slice(0, 20)} emptyText="No files selected for restore." />
+    </div>
+  );
+}
+
+function RestoreConflictList({ preview }: { preview: RestorePreview | null }) {
+  if (!preview) {
+    return <div className="rounded-md border border-[#263545] bg-[#06090d] p-3 text-sm text-[#9fb0bf]">Analyze a backup before reviewing conflicts.</div>;
+  }
+
+  return (
+    <div className="grid gap-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MetricTile label="Conflicts" value={String(preview.conflicts.length)} />
+        <MetricTile label="Will Overwrite" value={String(preview.filesToOverwrite)} />
+        <MetricTile label="Will Skip" value={String(preview.skippedFiles)} />
+      </div>
+      <RestoreFileTable files={preview.conflicts.slice(0, 30)} emptyText="No existing file conflicts detected." />
+    </div>
+  );
+}
+
+function RestoreFileTable({ files, emptyText }: { files: RestorePreviewFile[]; emptyText: string }) {
+  return (
+    <div className="overflow-x-auto rounded-md border border-[#263545] bg-[#06090d]">
+      <table className="w-full min-w-[720px] text-left text-sm">
+        <thead className="bg-[#0f151d] text-xs uppercase text-[#64748b]">
+          <tr>
+            <th className="px-3 py-2">File</th>
+            <th className="px-3 py-2">Project</th>
+            <th className="px-3 py-2">Category</th>
+            <th className="px-3 py-2">Size</th>
+            <th className="px-3 py-2">Action</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#1f2937] text-[#d9e5ef]">
+          {files.length === 0 ? (
+            <tr>
+              <td className="px-3 py-4 text-[#9fb0bf]" colSpan={5}>{emptyText}</td>
+            </tr>
+          ) : (
+            files.map((file) => (
+              <tr key={file.relativePath} className="align-top">
+                <td className="max-w-[360px] px-3 py-2"><span className="block break-all text-xs text-[#9fb0bf]">{file.relativePath}</span></td>
+                <td className="px-3 py-2">{file.projectCode}</td>
+                <td className="px-3 py-2">{file.category || "-"}</td>
+                <td className="whitespace-nowrap px-3 py-2">{formatBytes(file.size)}</td>
+                <td className="px-3 py-2">{file.reason}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RestoreReportView({ report }: { report: RestoreReport | null }) {
+  if (!report) {
+    return null;
+  }
+
+  return (
+    <div className="grid gap-4 rounded-md border border-[#263545] bg-[#06090d] p-4">
+      <div className="flex flex-col justify-between gap-2 md:flex-row md:items-center">
+        <div>
+          <div className="text-xs font-semibold uppercase text-[#64748b]">Restore Report</div>
+          <div className="mt-1"><StatusPill status={report.status} /></div>
+        </div>
+        <div className="text-xs text-[#9fb0bf]">{formatDuration(report.durationMs)} / {report.progress.progressPercentage}%</div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricTile label="Restored" value={String(report.restored)} />
+        <MetricTile label="Skipped" value={String(report.skipped)} />
+        <MetricTile label="Failed" value={String(report.failed)} />
+        <MetricTile label="Total Size" value={formatBytes(report.totalSize)} />
+        <MetricTile label="Total Files" value={String(report.progress.totalFiles)} />
+        <MetricTile label="Elapsed" value={formatDuration(report.progress.elapsedMs)} />
+        <MetricTile label="Remaining" value={formatDuration(report.progress.remainingMs)} />
+        <MetricTile label="Current File" value={report.progress.currentFile || "-"} />
+      </div>
+      <PathDisplay label="Destination" value={report.destination} />
+      {report.errors.length > 0 ? (
+        <div className="rounded-md border border-[#7f1d1d] bg-[#1f0d0d] p-3 text-xs leading-5 text-[#fca5a5]">
+          {report.errors.slice(0, 20).map((error) => (
+            <div key={error} className="break-all">{error}</div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
