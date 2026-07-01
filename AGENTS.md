@@ -35,6 +35,8 @@ Completed features:
 * Activity timeline with filters.
 * User management for ADMIN users: list, search, pagination, sorting, create, edit, activate/deactivate, reset password, and soft delete.
 * Editable system settings persisted in the database.
+* Project storage backup system for ADMIN users using the configured File Backup Location, with validation, incremental copy, persisted last-run status, and audit logging.
+* Backup history and verification: every backup run is stored, Settings shows run history, and ADMIN users can verify backup integrity against `STORAGE_ROOT/projects`.
 
 Current architecture:
 
@@ -43,6 +45,8 @@ Current architecture:
 * Shared helpers live under `src/lib`.
 * Prisma stores metadata; actual files stay on disk under `STORAGE_ROOT`.
 * API routes use consistent JSON success/error responses.
+* Backup service copies `STORAGE_ROOT/projects` to the configured external/local/NAS destination while preserving directory structure, filenames, and timestamps.
+* Backup verification compares source and backup folders for missing files, size changes, modified date changes, and checksum mismatches where metadata checksums exist.
 
 Database changes:
 
@@ -50,6 +54,8 @@ Database changes:
 * Added user profile fields: full name and department.
 * Added system settings singleton table.
 * Added audit actions for user lifecycle and archive uploads.
+* Added last file-backup result fields to system settings and backup audit actions.
+* Added backup run history table and backup verification audit actions.
 
 API endpoints:
 
@@ -60,12 +66,13 @@ API endpoints:
 * Activity: `GET /api/activity`
 * Users: `GET/POST /api/users`, `PUT/DELETE /api/users/[id]`, `POST /api/users/[id]/password`
 * Settings: `GET/PUT /api/settings`
+* Backup: `GET /api/backup/status`, `GET /api/backup/history`, `POST /api/backup/run`, `POST /api/backup/verify`
 
 Remaining roadmap:
 
 * Apply and verify migrations in clean environments.
 * Add automated tests for auth, permissions, project CRUD, upload/download, settings, and user management.
-* Add backup execution jobs for database and file storage.
+* Add scheduled backup execution jobs and restore drills using backup history/verification results.
 * Add admin screens for roles/permissions if permissions become configurable.
 * Add advanced search across project metadata, file metadata, checksums, and activity logs.
 * Add production deployment docs, monitoring, and backup restore procedures.

@@ -72,6 +72,12 @@ enum ActivityAction {
   USER_ENABLED
   USER_PASSWORD_RESET
   USER_DELETED
+  BACKUP_STARTED
+  BACKUP_COMPLETED
+  BACKUP_FAILED
+  BACKUP_VERIFICATION_STARTED
+  BACKUP_VERIFICATION_COMPLETED
+  BACKUP_VERIFICATION_FAILED
 }
 
 model Role {
@@ -107,6 +113,7 @@ model User {
   commissioningRecords CommissioningRecord[] @relation("CommissioningRecordEngineer")
   createdProjects      Project[]             @relation("ProjectCreator")
   updatedProjects      Project[]             @relation("ProjectUpdater")
+  backupRuns           BackupRun[]           @relation("BackupRunExecutor")
 
   @@index([roleId])
   @@index([isActive])
@@ -326,8 +333,38 @@ model SystemSettings {
   fileBackupSchedule     String?  @db.VarChar(120)
   maximumUploadSizeMb    Int      @default(2048)
   departments            Json
+  lastFileBackupStartedAt DateTime?
+  lastFileBackupFinishedAt DateTime?
+  lastFileBackupDurationMs Int?
+  lastFileBackupStatus   String?  @db.VarChar(40)
+  lastFileBackupSize     BigInt?
+  lastFileBackupResult   Json?
+  lastFileBackupDestination String? @db.VarChar(1024)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
+}
+
+model BackupRun {
+  id             Int      @id @default(autoincrement())
+  startedAt      DateTime
+  finishedAt     DateTime?
+  durationMs     Int?
+  status         String   @db.VarChar(40)
+  destination    String   @db.VarChar(1024)
+  filesCopied    Int      @default(0)
+  filesSkipped   Int      @default(0)
+  filesFailed    Int      @default(0)
+  totalFiles     Int      @default(0)
+  totalSize      BigInt   @default(0)
+  result         Json?
+  executedById   Int?
+  createdAt      DateTime @default(now())
+
+  executedBy User? @relation("BackupRunExecutor", fields: [executedById], references: [id], onDelete: SetNull)
+
+  @@index([startedAt])
+  @@index([status])
+  @@index([executedById])
 }
 
 model Tag {

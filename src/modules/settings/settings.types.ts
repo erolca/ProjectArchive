@@ -8,6 +8,13 @@ export interface SystemSettingsDto {
   fileBackupSchedule?: string | null;
   maximumUploadSizeMb: number;
   departments: string[];
+  lastFileBackupStartedAt?: Date | null;
+  lastFileBackupFinishedAt?: Date | null;
+  lastFileBackupDurationMs?: number | null;
+  lastFileBackupStatus?: string | null;
+  lastFileBackupSize?: bigint | null;
+  lastFileBackupResult?: unknown;
+  lastFileBackupDestination?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
