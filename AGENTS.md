@@ -30,7 +30,7 @@ Completed features:
 * Authentication foundation with password hashing, JWT sessions, current-user resolution, role permissions, and default seed support.
 * Project backend and UI for create, list, search, filter, sort, detail, and short-link lookup.
 * File backend and UI for real browser upload, metadata persistence, version history, duplicate checksum detection, and streamed downloads.
-* Machine digital archive tabs for PLC, HMI, Robot, Electrical, Mechanical, Pneumatic, Vision, Camera, Photos, Videos, FAT, SAT, Spare Parts, Service, Commissioning, Backups, and Documents.
+* Machine digital archive section selector for PLC, HMI, Robot, Electrical, Mechanical, Pneumatic, Vision, Camera, Photos, Videos, FAT, SAT, Spare Parts, Service, Commissioning, Backups, and Documents.
 * Dashboard with project, customer, backup, machine archive, recent upload, and activity metrics.
 * Activity timeline with filters.
 * User management for ADMIN users: list, search, pagination, sorting, create, edit, activate/deactivate, reset password, and soft delete.
@@ -41,8 +41,10 @@ Completed features:
 * Disaster recovery restore wizard: ADMIN users can analyze backup history entries, preview restore scope/conflicts, dry-run, and restore the full archive, one project, selected categories, or selected files.
 * Engineering metadata system for uploads: category-driven manufacturer and platform/software dropdowns persist manufacturer, software name, and software version while preserving the legacy internal platform code.
 * File preview engine: users with download permission can preview supported PDFs, images, videos, text files, and archive file trees without changing download behavior.
+* Archive preview UX shows user-friendly informational notices when RAR/7Z folder listing is unavailable, while confirming upload integrity and download availability.
 * File intelligence metadata extraction: preview-time extraction for PDFs, images, videos, archives, and text files without AI, content mutation, or database caching.
 * Enterprise metadata search: global topbar search, `/search` page, grouped results for projects, files, activities, and ADMIN-only users with metadata filters.
+* User-facing message presentation sanitizes developer-oriented details before displaying errors or preview limitations.
 
 Current architecture:
 
@@ -55,9 +57,12 @@ Current architecture:
 * Backup verification compares source and backup folders using SHA256 first, file size second, and modified date only as a warning when checksum is unavailable.
 * Restore service reads selected `BackupRun` destinations, validates all source/destination paths, and restores into `STORAGE_ROOT/projects` unless an explicit alternative restore location is selected.
 * File upload metadata uses structured engineering definitions and maps friendly selections such as Beckhoff/TwinCAT 3 to uppercase internal platform codes for compatibility.
+* Project Detail uses a grouped section selector instead of horizontal archive tabs, while preserving the same section state and file actions.
 * Preview service reuses file metadata, storage path safety, authentication, and file permissions; binary previews stream inline through authenticated API routes.
+* Preview UI translates archive preview limitations into end-user guidance and avoids exposing parser/tooling details.
 * File intelligence is an additive module under `src/modules/file-intelligence`; it runs on demand from the existing preview service after authorization and safe path resolution.
 * Enterprise search service performs permission-aware Prisma metadata searches across projects, customers, machine identifiers, files, engineering metadata, version notes, activities, and users.
+* Frontend API client preserves backend contracts while filtering technical implementation details from messages shown in the UI.
 
 Database changes:
 

@@ -5,6 +5,7 @@ import { StatusBadge } from "../../../components/ui/status-badge";
 import { downloadApiFile, getApi, getApiBlob, postFormApi } from "../../../lib/api-client";
 import { ENGINEERING_METADATA_OPTIONS, resolveEngineeringMetadataCode } from "../../../lib/engineering-metadata";
 import { formatBytes, formatDate, formatDateTime, shortHash } from "../../../lib/format";
+import { sanitizeUserMessage } from "../../../lib/user-messages";
 
 interface ProjectDetail {
   id: number;
@@ -37,27 +38,31 @@ interface ProjectDetail {
   };
 }
 
-const tabs = [
-  "General",
-  "PLC",
-  "HMI",
-  "Robot",
-  "Electrical",
-  "Mechanical",
-  "Pneumatic",
-  "Vision",
-  "Camera",
-  "Photos",
-  "Videos",
-  "FAT",
-  "SAT",
-  "Spare Parts",
-  "Service",
-  "Commissioning",
-  "Backups",
-  "Documents",
-  "Versions",
-  "Activity",
+const sectionGroups = [
+  {
+    label: "Overview",
+    sections: ["General"],
+  },
+  {
+    label: "Automation",
+    sections: ["PLC", "HMI", "Robot", "Vision", "Camera"],
+  },
+  {
+    label: "Engineering",
+    sections: ["Electrical", "Mechanical", "Pneumatic"],
+  },
+  {
+    label: "Documentation",
+    sections: ["Documents", "Photos", "Videos", "FAT", "SAT"],
+  },
+  {
+    label: "Lifecycle",
+    sections: ["Service", "Commissioning", "Spare Parts", "Backups"],
+  },
+  {
+    label: "System",
+    sections: ["Versions", "Activity"],
+  },
 ];
 const fileTabs = new Set([
   "PLC",
@@ -282,21 +287,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto border-b border-[#263545] pb-2">
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`rounded-md border px-3 py-2 text-sm ${
-              activeTab === tab
-                ? "border-[#2f80ed] bg-[#17304a] text-white"
-                : "border-[#263545] bg-[#111820] text-[#c6d3df]"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      <SectionSelector activeSection={activeTab} files={files} onChange={setActiveTab} />
 
       <section className="grid gap-4 xl:grid-cols-3">
         <InfoCard title="Project Information">
@@ -323,7 +314,13 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
       </section>
 
       <section className="rounded-md border border-[#263545] bg-[#111820] p-4">
-        <h3 className="text-sm font-semibold text-white">{activeTab}</h3>
+        <div className="flex flex-col gap-1 border-b border-[#263545] pb-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#64748b]">Selected Section</div>
+            <h3 className="mt-1 text-lg font-semibold text-white">{activeTab}</h3>
+          </div>
+          <div className="text-xs text-[#9fb0bf]">{getSectionGroupLabel(activeTab)}</div>
+        </div>
         {activeTab === "General" ? (
           <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
             <Field label="PLC Brand" value={project.plcBrand || "-"} />
@@ -426,6 +423,93 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
       ) : null}
     </div>
   );
+}
+
+function SectionSelector({
+  activeSection,
+  files,
+  onChange,
+}: {
+  activeSection: string;
+  files: ProjectFileRow[];
+  onChange: (section: string) => void;
+}) {
+  const activeCount = countFilesForSection(files, activeSection);
+
+  return (
+    <section className="rounded-md border border-[#263545] bg-[#111820] p-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,420px)] lg:items-end">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#9fb0bf]">Project Section</div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="max-w-full truncate text-xl font-semibold text-white">{activeSection}</div>
+            <span className="rounded border border-[#2f80ed] bg-[#10243b] px-2 py-1 text-xs font-semibold text-[#93c5fd]">
+              {getSectionGroupLabel(activeSection)}
+            </span>
+            {fileTabs.has(activeSection) ? (
+              <span className="rounded border border-[#263545] bg-[#0f151d] px-2 py-1 text-xs font-semibold text-[#d9e5ef]">
+                {activeCount} {activeCount === 1 ? "file" : "files"}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {sectionGroups.map((group) => (
+              <span
+                key={group.label}
+                className={`rounded border px-2 py-1 text-xs ${
+                  getSectionGroupLabel(activeSection) === group.label
+                    ? "border-[#2f80ed] bg-[#17304a] text-white"
+                    : "border-[#263545] bg-[#0f151d] text-[#9fb0bf]"
+                }`}
+              >
+                {group.label}
+              </span>
+            ))}
+          </div>
+        </div>
+        <label className="block w-full">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-[#9fb0bf]">
+            Select Archive Section
+          </span>
+          <select
+            value={activeSection}
+            onChange={(event) => onChange(event.target.value)}
+            className="h-11 w-full rounded-md border border-[#263545] bg-[#0f151d] px-3 text-sm font-semibold text-white outline-none focus:border-[#2f80ed]"
+          >
+            {sectionGroups.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.sections.map((section) => (
+                  <option key={section} value={section}>
+                    {formatSectionOption(section, files)}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+      </div>
+    </section>
+  );
+}
+
+function getSectionGroupLabel(section: string): string {
+  const group = sectionGroups.find((item) => item.sections.includes(section));
+
+  return group ? group.label : "Project Archive";
+}
+
+function formatSectionOption(section: string, files: ProjectFileRow[]): string {
+  if (!fileTabs.has(section)) {
+    return section;
+  }
+
+  const count = countFilesForSection(files, section);
+
+  return `${section} (${count})`;
+}
+
+function countFilesForSection(files: ProjectFileRow[], section: string): number {
+  return files.filter((file) => categoryMatchesTab(file.category, section)).length;
 }
 
 function FileTabContent({
@@ -639,6 +723,7 @@ function PreviewDialog({
 
 function PreviewMetadata({ preview, onDownload }: { preview: FilePreviewResult; onDownload: () => void }) {
   const metadata = preview.metadata;
+  const previewNotice = getPreviewNotice(preview);
 
   return (
     <aside className="overflow-auto rounded-md border border-[#263545] bg-[#111820] p-4">
@@ -655,9 +740,7 @@ function PreviewMetadata({ preview, onDownload }: { preview: FilePreviewResult; 
         <PreviewField label="File size" value={formatBytes(metadata.fileSize)} />
         <PreviewField label="SHA256" value={metadata.checksum} mono />
       </div>
-      {preview.message ? (
-        <div className="mt-4 rounded-md border border-[#3f2d14] bg-[#140f08] p-3 text-xs text-[#f8d28b]">{preview.message}</div>
-      ) : null}
+      {previewNotice ? <PreviewNoticeCard notice={previewNotice} /> : null}
       <FileIntelligencePanel intelligence={preview.intelligence} />
       <button onClick={onDownload} className="mt-4 w-full rounded-md bg-[#2f80ed] px-4 py-2 text-sm font-semibold text-white">
         Download
@@ -670,6 +753,9 @@ function FileIntelligencePanel({ intelligence }: { intelligence?: FileIntelligen
   if (!intelligence) {
     return null;
   }
+  const warnings = intelligence.warnings.map((warning) =>
+    formatIntelligenceWarning(intelligence.kind, intelligence.status, warning),
+  );
 
   return (
     <section className="mt-4 rounded-md border border-[#263545] bg-[#0f151d] p-3">
@@ -700,17 +786,135 @@ function FileIntelligencePanel({ intelligence }: { intelligence?: FileIntelligen
         <div className="mt-3 text-xs text-[#9fb0bf]">No extractable metadata was found for this file.</div>
       )}
 
-      {intelligence.warnings.length ? (
+      {warnings.length ? (
         <div className="mt-3 space-y-2">
-          {intelligence.warnings.map((warning) => (
-            <div key={warning} className="rounded border border-[#3f2d14] bg-[#140f08] p-2 text-xs text-[#f8d28b]">
-              {warning}
-            </div>
+          {warnings.map((warning) => (
+            <PreviewNoticeCard key={warning.title} notice={warning} compact />
           ))}
         </div>
       ) : null}
     </section>
   );
+}
+
+interface PreviewNotice {
+  type?: "information" | "warning" | "success";
+  title: string;
+  body: string;
+  note?: string;
+}
+
+function PreviewNoticeCard({ notice, compact = false }: { notice: PreviewNotice; compact?: boolean }) {
+  return (
+    <div className={`mt-4 rounded-md border ${getNoticeClassName(notice.type || "information")} ${compact ? "p-2" : "p-3"}`}>
+      <div className="flex items-start gap-2">
+        <span className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border text-xs font-bold ${getNoticeIconClassName(notice.type || "information")}`}>
+          {getNoticeIcon(notice.type || "information")}
+        </span>
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-white">{notice.title}</div>
+          <p className="mt-1 text-xs leading-5 text-[#d9e5ef]">{notice.body}</p>
+          {notice.note ? <p className="mt-1 text-xs leading-5 text-[#c6a96c]">{notice.note}</p> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getPreviewNotice(preview: FilePreviewResult): PreviewNotice | null {
+  if (!preview.message) {
+    return null;
+  }
+
+  if (preview.kind === "archive") {
+    return archivePreviewUnavailableNotice();
+  }
+
+  return {
+    type: "information",
+    title: "Preview note",
+    body: sanitizeUserMessage(preview.message, "Preview is not available for this file. The file remains available for download."),
+  };
+}
+
+function formatIntelligenceWarning(
+  kind: FileIntelligenceResult["kind"],
+  status: FileIntelligenceResult["status"],
+  warning: string,
+): PreviewNotice {
+  if (kind === "archive" && isArchivePreviewTechnicalWarning(warning)) {
+    return archivePreviewUnavailableNotice();
+  }
+
+  if (kind === "video" && isVideoMetadataTechnicalWarning(warning)) {
+    return {
+      type: "information",
+      title: "Video Information",
+      body: "The video can be previewed normally. Advanced technical metadata is not available on this server.",
+    };
+  }
+
+  if (status === "PARTIAL") {
+    return {
+      type: "information",
+      title: "File Intelligence",
+      body: "Some advanced file information could not be extracted. The uploaded file remains fully usable.",
+    };
+  }
+
+  return {
+    type: "information",
+    title: "File intelligence note",
+    body: sanitizeUserMessage(warning, "Some advanced file information could not be extracted. The uploaded file remains fully usable."),
+  };
+}
+
+function isArchivePreviewTechnicalWarning(warning: string): boolean {
+  const normalized = warning.toLowerCase();
+
+  return (
+    normalized.includes("archive listing") ||
+    normalized.includes("archive tree preview") ||
+    normalized.includes("tooling") ||
+    normalized.includes("archive format")
+  );
+}
+
+function isVideoMetadataTechnicalWarning(warning: string): boolean {
+  const normalized = warning.toLowerCase();
+
+  return normalized.includes("ffprobe") || normalized.includes("video metadata");
+}
+
+function archivePreviewUnavailableNotice(): PreviewNotice {
+  return {
+    type: "information",
+    title: "Archive Preview",
+    body:
+      "Preview is not available for this archive format on this server. The archive was uploaded successfully and remains available for download.",
+    note: "If additional archive support is installed in the future, preview will become available automatically.",
+  };
+}
+
+function getNoticeClassName(type: "information" | "warning" | "success"): string {
+  if (type === "success") return "border-[#166534] bg-[#0d2618]";
+  if (type === "warning") return "border-[#3f2d14] bg-[#140f08]";
+
+  return "border-[#1d4ed8] bg-[#0b1b2d]";
+}
+
+function getNoticeIconClassName(type: "information" | "warning" | "success"): string {
+  if (type === "success") return "border-[#86efac] text-[#86efac]";
+  if (type === "warning") return "border-[#f8d28b] text-[#f8d28b]";
+
+  return "border-[#93c5fd] text-[#93c5fd]";
+}
+
+function getNoticeIcon(type: "information" | "warning" | "success"): string {
+  if (type === "success") return "OK";
+  if (type === "warning") return "!";
+
+  return "i";
 }
 
 function getIntelligenceStatusClass(status: FileIntelligenceResult["status"]): string {

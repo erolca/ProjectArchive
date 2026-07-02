@@ -1,6 +1,7 @@
 "use client";
 
 import { getStoredAuthToken } from "./client-auth";
+import { sanitizeUserMessage } from "./user-messages";
 
 type ApiSuccess<T> = {
   success: true;
@@ -42,7 +43,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   const responseText = await response.text();
 
   if (!contentType.includes("application/json")) {
-    throw new Error(buildNonJsonError(response, responseText));
+    throw new Error(sanitizeUserMessage(buildNonJsonError(response, responseText)));
   }
 
   let payload: ApiResponse<T>;
@@ -54,7 +55,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   }
 
   if (!payload.success) {
-    throw new Error(payload.error.message);
+    throw new Error(sanitizeUserMessage(payload.error.message));
   }
 
   return payload.data;
@@ -122,10 +123,10 @@ export async function downloadApiFile(path: string): Promise<{ blob: Blob; fileN
 
     if (contentType.includes("application/json")) {
       const payload = (await response.json()) as ApiFailure;
-      throw new Error(payload.error.message);
+      throw new Error(sanitizeUserMessage(payload.error.message));
     }
 
-    throw new Error(`Download failed (${response.status}).`);
+    throw new Error(sanitizeUserMessage(`Download failed (${response.status}).`, "Download could not be completed."));
   }
 
   return {
@@ -151,10 +152,10 @@ export async function getApiBlob(path: string): Promise<{ blob: Blob; contentTyp
 
     if (contentType.includes("application/json")) {
       const payload = (await response.json()) as ApiFailure;
-      throw new Error(payload.error.message);
+      throw new Error(sanitizeUserMessage(payload.error.message));
     }
 
-    throw new Error(`Preview failed (${response.status}).`);
+    throw new Error(sanitizeUserMessage(`Preview failed (${response.status}).`, "Preview could not be loaded."));
   }
 
   return {
