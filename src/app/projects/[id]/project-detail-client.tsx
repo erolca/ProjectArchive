@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { StatusBadge } from "../../../components/ui/status-badge";
-import { downloadApiFile, getApi, postFormApi } from "../../../lib/api-client";
+import { downloadApiFile, getApi, getApiBlob, postFormApi } from "../../../lib/api-client";
 import { ENGINEERING_METADATA_OPTIONS, resolveEngineeringMetadataCode } from "../../../lib/engineering-metadata";
 import { formatBytes, formatDate, formatDateTime, shortHash } from "../../../lib/format";
 
@@ -139,6 +139,38 @@ interface ProjectFileRow {
   }>;
 }
 
+interface ArchiveTreeItem {
+  name: string;
+  path: string;
+  type: "folder" | "file";
+  size?: number | null;
+  children?: ArchiveTreeItem[];
+}
+
+interface FilePreviewResult {
+  kind: "pdf" | "image" | "video" | "text" | "archive" | "unsupported";
+  contentType: string;
+  contentUrl?: string;
+  textContent?: string;
+  archiveTree?: ArchiveTreeItem[];
+  message?: string;
+  metadata: {
+    id: number;
+    fileName: string;
+    category: string;
+    manufacturer?: string | null;
+    softwareName?: string | null;
+    softwareVersion?: string | null;
+    platform?: string | null;
+    archiveVersion: string;
+    uploadedBy?: string | null;
+    uploadedAt: string;
+    fileSize: string;
+    checksum: string;
+    version: string;
+  };
+}
+
 export function ProjectDetailClient({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [status, setStatus] = useState("Loading project");
@@ -149,6 +181,9 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
   const [files, setFiles] = useState<ProjectFileRow[]>([]);
   const [filesStatus, setFilesStatus] = useState("Loading files");
   const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
+  const [preview, setPreview] = useState<FilePreviewResult | null>(null);
+  const [previewStatus, setPreviewStatus] = useState<string | null>(null);
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
 
   function refreshFiles() {
     getApi<ProjectFileRow[]>(`/api/projects/${projectId}/files`)
@@ -175,6 +210,38 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
   useEffect(() => {
     refreshFiles();
   }, [projectId]);
+
+  useEffect(() => {
+    return () => {
+      if (previewBlobUrl) {
+        URL.revokeObjectURL(previewBlobUrl);
+      }
+    };
+  }, [previewBlobUrl]);
+
+  async function openPreview(fileId: number) {
+    setPreview(null);
+    setPreviewStatus("Loading preview...");
+
+    if (previewBlobUrl) {
+      URL.revokeObjectURL(previewBlobUrl);
+      setPreviewBlobUrl(null);
+    }
+
+    try {
+      const result = await getApi<FilePreviewResult>(`/api/files/${fileId}/preview`);
+      setPreview(result);
+
+      if (result.contentUrl) {
+        const { blob } = await getApiBlob(result.contentUrl);
+        setPreviewBlobUrl(URL.createObjectURL(blob));
+      }
+
+      setPreviewStatus(null);
+    } catch (error) {
+      setPreviewStatus(error instanceof Error ? error.message : "Could not load preview.");
+    }
+  }
 
   if (!project) {
     return <div className="rounded-md border border-[#263545] bg-[#111820] p-4 text-sm text-[#9fb0bf]">{status}</div>;
@@ -275,6 +342,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
                   setDownloadStatus(error instanceof Error ? error.message : "Could not download file.");
                 });
             }}
+            onPreview={openPreview}
             onUpload={() => {
               setPrepareResult(null);
               setUploadStatus(null);
@@ -305,6 +373,39 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
           onClose={() => setIsUploadOpen(false)}
         />
       ) : null}
+      {preview || previewStatus ? (
+        <PreviewDialog
+          preview={preview}
+          status={previewStatus}
+          blobUrl={previewBlobUrl}
+          onClose={() => {
+            setPreview(null);
+            setPreviewStatus(null);
+            if (previewBlobUrl) {
+              URL.revokeObjectURL(previewBlobUrl);
+              setPreviewBlobUrl(null);
+            }
+          }}
+          onDownload={(fileId) => {
+            setDownloadStatus("Downloading...");
+            downloadApiFile(`/api/files/${fileId}/download`)
+              .then(({ blob, fileName }) => {
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = fileName;
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                URL.revokeObjectURL(url);
+                setDownloadStatus(`Downloaded ${fileName}.`);
+              })
+              .catch((error) => {
+                setDownloadStatus(error instanceof Error ? error.message : "Could not download file.");
+              });
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -315,6 +416,7 @@ function FileTabContent({
   filesStatus,
   downloadStatus,
   onDownload,
+  onPreview,
   onUpload,
 }: {
   tab: string;
@@ -322,6 +424,7 @@ function FileTabContent({
   filesStatus: string;
   downloadStatus: string | null;
   onDownload: (fileId: number) => void;
+  onPreview: (fileId: number) => void;
   onUpload: () => void;
 }) {
   return (
@@ -368,12 +471,20 @@ function FileTabContent({
                   <td className="px-4 py-3">{file.uploadedBy?.username || "-"}</td>
                   <td className="px-4 py-3">{formatDateTime(file.uploadedAt)}</td>
                   <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => onPreview(file.id)}
+                        className="rounded-md border border-[#64748b] px-3 py-1 text-xs font-semibold text-[#d9e5ef]"
+                      >
+                        Preview
+                      </button>
                     <button
                       onClick={() => onDownload(file.id)}
                       className="rounded-md border border-[#2f80ed] px-3 py-1 text-xs font-semibold text-[#38bdf8]"
                     >
                       Download
                     </button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -450,6 +561,192 @@ function VersionHistory({ files, filesStatus }: { files: ProjectFileRow[]; files
       </table>
     </div>
   );
+}
+
+function PreviewDialog({
+  preview,
+  status,
+  blobUrl,
+  onClose,
+  onDownload,
+}: {
+  preview: FilePreviewResult | null;
+  status: string | null;
+  blobUrl: string | null;
+  onClose: () => void;
+  onDownload: (fileId: number) => void;
+}) {
+  const [imageFit, setImageFit] = useState(true);
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/70">
+      <div className="flex h-full w-full max-w-6xl flex-col border-l border-[#263545] bg-[#0b0f14] shadow-xl">
+        <div className="flex items-center justify-between border-b border-[#263545] px-4 py-3">
+          <div>
+            <h3 className="text-base font-semibold text-white">File Preview</h3>
+            <p className="text-xs text-[#9fb0bf]">{preview?.metadata.fileName || status || "Loading"}</p>
+          </div>
+          <button onClick={onClose} className="rounded-md border border-[#263545] px-3 py-1 text-sm text-[#c6d3df]">
+            Close
+          </button>
+        </div>
+
+        {status ? (
+          <div className="m-4 rounded-md border border-[#263545] bg-[#111820] p-4 text-sm text-[#9fb0bf]">{status}</div>
+        ) : null}
+
+        {preview ? (
+          <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <PreviewMetadata preview={preview} onDownload={() => onDownload(preview.metadata.id)} />
+            <div className="min-h-0 overflow-hidden rounded-md border border-[#263545] bg-[#111820]">
+              <div className="flex items-center justify-between border-b border-[#263545] px-3 py-2">
+                <span className="text-xs font-semibold uppercase text-[#9fb0bf]">{preview.kind}</span>
+                {preview.kind === "image" ? (
+                  <button
+                    onClick={() => setImageFit((value) => !value)}
+                    className="rounded-md border border-[#263545] px-3 py-1 text-xs text-[#d9e5ef]"
+                  >
+                    {imageFit ? "Zoom" : "Fit"}
+                  </button>
+                ) : null}
+              </div>
+              <PreviewContent preview={preview} blobUrl={blobUrl} imageFit={imageFit} />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PreviewMetadata({ preview, onDownload }: { preview: FilePreviewResult; onDownload: () => void }) {
+  const metadata = preview.metadata;
+
+  return (
+    <aside className="overflow-auto rounded-md border border-[#263545] bg-[#111820] p-4">
+      <div className="grid gap-3 text-sm">
+        <PreviewField label="File name" value={metadata.fileName} />
+        <PreviewField label="Category" value={metadata.category} />
+        <PreviewField label="Manufacturer" value={metadata.manufacturer || "-"} />
+        <PreviewField label="Platform / Software" value={metadata.softwareName || metadata.platform || "-"} />
+        <PreviewField label="Software Version" value={metadata.softwareVersion || "-"} />
+        <PreviewField label="Archive Version" value={metadata.archiveVersion} />
+        <PreviewField label="Version" value={metadata.version} />
+        <PreviewField label="Uploaded by" value={metadata.uploadedBy || "-"} />
+        <PreviewField label="Upload date" value={formatDateTime(metadata.uploadedAt)} />
+        <PreviewField label="File size" value={formatBytes(metadata.fileSize)} />
+        <PreviewField label="SHA256" value={metadata.checksum} mono />
+      </div>
+      {preview.message ? (
+        <div className="mt-4 rounded-md border border-[#3f2d14] bg-[#140f08] p-3 text-xs text-[#f8d28b]">{preview.message}</div>
+      ) : null}
+      <button onClick={onDownload} className="mt-4 w-full rounded-md bg-[#2f80ed] px-4 py-2 text-sm font-semibold text-white">
+        Download
+      </button>
+    </aside>
+  );
+}
+
+function PreviewField({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase text-[#64748b]">{label}</div>
+      <div className={`mt-1 break-all text-[#d9e5ef] ${mono ? "font-mono text-xs" : ""}`}>{value}</div>
+    </div>
+  );
+}
+
+function PreviewContent({ preview, blobUrl, imageFit }: { preview: FilePreviewResult; blobUrl: string | null; imageFit: boolean }) {
+  if (preview.kind === "pdf") {
+    return blobUrl ? <iframe src={blobUrl} title={preview.metadata.fileName} className="h-full min-h-[70vh] w-full bg-white" /> : <PreviewLoading />;
+  }
+
+  if (preview.kind === "image") {
+    return (
+      <div className="grid h-full min-h-[70vh] place-items-center overflow-auto bg-[#06090d] p-4">
+        {blobUrl ? (
+          <img
+            src={blobUrl}
+            alt={preview.metadata.fileName}
+            className={imageFit ? "max-h-full max-w-full object-contain" : "max-w-none"}
+          />
+        ) : (
+          <PreviewLoading />
+        )}
+      </div>
+    );
+  }
+
+  if (preview.kind === "video") {
+    return (
+      <div className="grid h-full min-h-[70vh] place-items-center bg-black p-4">
+        {blobUrl ? <video src={blobUrl} controls className="max-h-full max-w-full" /> : <PreviewLoading />}
+      </div>
+    );
+  }
+
+  if (preview.kind === "text") {
+    return (
+      <pre className={`h-full min-h-[70vh] overflow-auto p-4 text-xs leading-5 text-[#d9e5ef] ${getSyntaxClass(preview.metadata.fileName)}`}>
+        {preview.textContent || ""}
+      </pre>
+    );
+  }
+
+  if (preview.kind === "archive") {
+    return <ArchiveTree tree={preview.archiveTree || []} />;
+  }
+
+  return (
+    <div className="grid min-h-[70vh] place-items-center p-6 text-center text-sm text-[#9fb0bf]">
+      <div>
+        <div className="text-base font-semibold text-white">Preview unavailable</div>
+        <p className="mt-2">{preview.message || "This file type is not supported for in-browser preview."}</p>
+      </div>
+    </div>
+  );
+}
+
+function PreviewLoading() {
+  return <div className="p-4 text-sm text-[#9fb0bf]">Loading preview content...</div>;
+}
+
+function ArchiveTree({ tree }: { tree: ArchiveTreeItem[] }) {
+  if (tree.length === 0) {
+    return <div className="p-4 text-sm text-[#9fb0bf]">Archive is empty or its file list could not be read.</div>;
+  }
+
+  return (
+    <div className="h-full min-h-[70vh] overflow-auto p-4 text-sm text-[#d9e5ef]">
+      {tree.map((item) => (
+        <ArchiveTreeNode key={item.path} item={item} depth={0} />
+      ))}
+    </div>
+  );
+}
+
+function ArchiveTreeNode({ item, depth }: { item: ArchiveTreeItem; depth: number }) {
+  return (
+    <div>
+      <div className="flex gap-2 py-1" style={{ paddingLeft: depth * 16 }}>
+        <span className={item.type === "folder" ? "text-[#38bdf8]" : "text-[#d9e5ef]"}>{item.type === "folder" ? "[DIR]" : "[FILE]"}</span>
+        <span className="break-all">{item.name}</span>
+        {item.type === "file" ? <span className="ml-auto whitespace-nowrap text-[#64748b]">{formatBytes(item.size || 0)}</span> : null}
+      </div>
+      {item.children?.map((child) => (
+        <ArchiveTreeNode key={child.path} item={child} depth={depth + 1} />
+      ))}
+    </div>
+  );
+}
+
+function getSyntaxClass(fileName: string): string {
+  const extension = fileName.split(".").pop()?.toLowerCase();
+
+  if (extension === "json") return "text-[#d9e5ef]";
+  if (extension === "xml") return "text-[#c4b5fd]";
+  if (extension === "csv") return "text-[#bfdbfe]";
+  return "text-[#d9e5ef]";
 }
 
 function UploadDialog({

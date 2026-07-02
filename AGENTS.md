@@ -40,6 +40,7 @@ Completed features:
 * Backup folder UX copies the configured backup path for Windows Explorer because browsers cannot directly open server-local folders.
 * Disaster recovery restore wizard: ADMIN users can analyze backup history entries, preview restore scope/conflicts, dry-run, and restore the full archive, one project, selected categories, or selected files.
 * Engineering metadata system for uploads: category-driven manufacturer and platform/software dropdowns persist manufacturer, software name, and software version while preserving the legacy internal platform code.
+* File preview engine: users with download permission can preview supported PDFs, images, videos, text files, and archive file trees without changing download behavior.
 
 Current architecture:
 
@@ -52,6 +53,7 @@ Current architecture:
 * Backup verification compares source and backup folders using SHA256 first, file size second, and modified date only as a warning when checksum is unavailable.
 * Restore service reads selected `BackupRun` destinations, validates all source/destination paths, and restores into `STORAGE_ROOT/projects` unless an explicit alternative restore location is selected.
 * File upload metadata uses structured engineering definitions and maps friendly selections such as Beckhoff/TwinCAT 3 to uppercase internal platform codes for compatibility.
+* Preview service reuses file metadata, storage path safety, authentication, and file permissions; binary previews stream inline through authenticated API routes.
 
 Database changes:
 
@@ -75,6 +77,7 @@ API endpoints:
 * Settings: `GET/PUT /api/settings`
 * Backup: `GET /api/backup/status`, `GET /api/backup/history`, `POST /api/backup/run`, `POST /api/backup/verify`
 * Restore: `POST /api/restore/analyze`, `POST /api/restore/execute`
+* Preview: `GET /api/files/[id]/preview`, `GET /api/files/[id]/preview/content`
 
 Remaining roadmap:
 

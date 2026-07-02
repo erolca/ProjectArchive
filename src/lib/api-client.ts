@@ -134,6 +134,35 @@ export async function downloadApiFile(path: string): Promise<{ blob: Blob; fileN
   };
 }
 
+export async function getApiBlob(path: string): Promise<{ blob: Blob; contentType: string }> {
+  const token = getStoredAuthToken();
+  const headers = new Headers();
+
+  if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+
+  const response = await fetch(path, {
+    headers,
+  });
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      const payload = (await response.json()) as ApiFailure;
+      throw new Error(payload.error.message);
+    }
+
+    throw new Error(`Preview failed (${response.status}).`);
+  }
+
+  return {
+    blob: await response.blob(),
+    contentType: response.headers.get("content-type") || "application/octet-stream",
+  };
+}
+
 function getFileNameFromDisposition(disposition: string | null): string | null {
   if (!disposition) {
     return null;
