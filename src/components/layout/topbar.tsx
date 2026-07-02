@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { FormEvent } from "react";
 import { useState } from "react";
 import { clearStoredAuthToken } from "../../lib/client-auth";
 import { getDisplayName, getInitials, useCurrentUser } from "../../lib/current-user";
@@ -10,18 +11,50 @@ export function Topbar() {
   const router = useRouter();
   const user = useCurrentUser();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   function handleLogout() {
     clearStoredAuthToken();
     router.replace("/login");
   }
 
+  function handleSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = searchQuery.trim();
+
+    if (query) {
+      router.push(`/search?q=${encodeURIComponent(query)}`);
+    } else {
+      router.push("/search");
+    }
+  }
+
   return (
-    <header className="flex min-h-16 items-center justify-between border-b border-[#263545] bg-[#111820] px-4 lg:px-6">
-      <div>
+    <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[#263545] bg-[#111820] px-4 lg:flex-nowrap lg:px-6">
+      <div className="shrink-0">
         <div className="text-xs uppercase tracking-[0.16em] text-[#9fb0bf]">Industrial Automation</div>
         <h1 className="text-base font-semibold text-white">Project Archive System</h1>
       </div>
+      <form onSubmit={handleSearch} className="order-3 w-full lg:order-none lg:max-w-xl lg:flex-1">
+        <label className="sr-only" htmlFor="global-search">
+          Enterprise search
+        </label>
+        <div className="flex h-10 items-center rounded-md border border-[#263545] bg-[#0f151d] focus-within:border-[#2f80ed]">
+          <input
+            id="global-search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search projects, files, customers, activity..."
+            className="min-w-0 flex-1 bg-transparent px-3 text-sm text-white outline-none placeholder:text-[#6f8294]"
+          />
+          <button
+            type="submit"
+            className="h-full border-l border-[#263545] px-4 text-sm font-semibold text-[#93c5fd] hover:bg-[#16202a] hover:text-white"
+          >
+            Search
+          </button>
+        </div>
+      </form>
       <div className="relative">
         <button
           onClick={() => setIsMenuOpen((value) => !value)}

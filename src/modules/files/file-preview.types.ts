@@ -1,3 +1,5 @@
+import type { FileIntelligenceResult } from "../file-intelligence/file-intelligence.types";
+
 export type PreviewKind = "pdf" | "image" | "video" | "text" | "archive" | "unsupported";
 
 export interface ArchiveTreeItem {
@@ -31,5 +33,6 @@ export interface FilePreviewResult {
   metadata: FilePreviewMetadata;
   textContent?: string;
   archiveTree?: ArchiveTreeItem[];
+  intelligence?: FileIntelligenceResult;
   message?: string;
 }

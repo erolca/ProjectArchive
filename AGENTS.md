@@ -41,6 +41,8 @@ Completed features:
 * Disaster recovery restore wizard: ADMIN users can analyze backup history entries, preview restore scope/conflicts, dry-run, and restore the full archive, one project, selected categories, or selected files.
 * Engineering metadata system for uploads: category-driven manufacturer and platform/software dropdowns persist manufacturer, software name, and software version while preserving the legacy internal platform code.
 * File preview engine: users with download permission can preview supported PDFs, images, videos, text files, and archive file trees without changing download behavior.
+* File intelligence metadata extraction: preview-time extraction for PDFs, images, videos, archives, and text files without AI, content mutation, or database caching.
+* Enterprise metadata search: global topbar search, `/search` page, grouped results for projects, files, activities, and ADMIN-only users with metadata filters.
 
 Current architecture:
 
@@ -54,6 +56,8 @@ Current architecture:
 * Restore service reads selected `BackupRun` destinations, validates all source/destination paths, and restores into `STORAGE_ROOT/projects` unless an explicit alternative restore location is selected.
 * File upload metadata uses structured engineering definitions and maps friendly selections such as Beckhoff/TwinCAT 3 to uppercase internal platform codes for compatibility.
 * Preview service reuses file metadata, storage path safety, authentication, and file permissions; binary previews stream inline through authenticated API routes.
+* File intelligence is an additive module under `src/modules/file-intelligence`; it runs on demand from the existing preview service after authorization and safe path resolution.
+* Enterprise search service performs permission-aware Prisma metadata searches across projects, customers, machine identifiers, files, engineering metadata, version notes, activities, and users.
 
 Database changes:
 
@@ -65,6 +69,7 @@ Database changes:
 * Added backup run history table and backup verification audit actions.
 * Added restore audit actions for disaster recovery operations.
 * Added engineering metadata fields to project files and file versions.
+* No database fields were added for file intelligence; extracted metadata is computed on demand to avoid migration and cache invalidation risk.
 
 API endpoints:
 
@@ -78,6 +83,7 @@ API endpoints:
 * Backup: `GET /api/backup/status`, `GET /api/backup/history`, `POST /api/backup/run`, `POST /api/backup/verify`
 * Restore: `POST /api/restore/analyze`, `POST /api/restore/execute`
 * Preview: `GET /api/files/[id]/preview`, `GET /api/files/[id]/preview/content`
+* Search: `GET /api/search`
 
 Remaining roadmap:
 
@@ -85,7 +91,7 @@ Remaining roadmap:
 * Add automated tests for auth, permissions, project CRUD, upload/download, settings, and user management.
 * Add scheduled backup execution jobs and recurring restore drills using backup history, verification results, and restore dry-run reports.
 * Add admin screens for roles/permissions if permissions become configurable.
-* Add advanced search across project metadata, file metadata, checksums, and activity logs.
+* Add full-text document content search, OCR, and indexed PDF/archive content parsing as a future search phase.
 * Add production deployment docs, monitoring, and backup restore procedures.
 
 ---

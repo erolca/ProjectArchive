@@ -7,6 +7,7 @@ import { prisma } from "../../lib/prisma";
 import { buildPathFromRelativeStoragePath, getActiveStorageConfig } from "../storage/storage.service";
 import { requirePermission } from "../auth/permissions";
 import type { AuthenticatedUser } from "../auth/auth.types";
+import { analyzeFileIntelligence } from "../file-intelligence/file-intelligence.service";
 import { fileIdSchema } from "./file.validators";
 import type { ArchiveTreeItem, FilePreviewMetadata, FilePreviewResult, PreviewKind } from "./file-preview.types";
 
@@ -29,6 +30,7 @@ export async function getFilePreview(user: AuthenticatedUser, fileId: number): P
       contentType,
       metadata,
       textContent: await readTextPreview(file.absolutePath),
+      intelligence: await analyzeFileIntelligence(file.absolutePath, file.originalFileName),
     };
   }
 
@@ -40,6 +42,7 @@ export async function getFilePreview(user: AuthenticatedUser, fileId: number): P
       contentType,
       metadata,
       archiveTree,
+      intelligence: await analyzeFileIntelligence(file.absolutePath, file.originalFileName, archiveTree),
       message: archiveTree.length === 1 && archiveTree[0]?.type === "file" ? "Archive tree preview is limited for this format on this server." : undefined,
     };
   }
@@ -48,6 +51,7 @@ export async function getFilePreview(user: AuthenticatedUser, fileId: number): P
     kind,
     contentType,
     metadata,
+    intelligence: await analyzeFileIntelligence(file.absolutePath, file.originalFileName),
     contentUrl: kind === "unsupported" ? undefined : `/api/files/${file.id}/preview/content`,
     message: kind === "unsupported" ? "Preview is not supported for this file type. Use Download to open it locally." : undefined,
   };
@@ -173,7 +177,7 @@ async function readTextPreview(filePath: string): Promise<string> {
   }
 }
 
-async function readArchiveTree(filePath: string, fileName: string): Promise<ArchiveTreeItem[]> {
+export async function readArchiveTree(filePath: string, fileName: string): Promise<ArchiveTreeItem[]> {
   const extension = path.extname(fileName).toLowerCase();
 
   if (extension === ".zip") {

@@ -147,12 +147,30 @@ interface ArchiveTreeItem {
   children?: ArchiveTreeItem[];
 }
 
+interface FileIntelligenceField {
+  label: string;
+  value: string;
+}
+
+interface FileIntelligenceSection {
+  title: string;
+  fields: FileIntelligenceField[];
+}
+
+interface FileIntelligenceResult {
+  kind: "pdf" | "image" | "video" | "archive" | "text" | "unsupported";
+  status: "EXTRACTED" | "PARTIAL" | "UNSUPPORTED" | "FAILED";
+  sections: FileIntelligenceSection[];
+  warnings: string[];
+}
+
 interface FilePreviewResult {
   kind: "pdf" | "image" | "video" | "text" | "archive" | "unsupported";
   contentType: string;
   contentUrl?: string;
   textContent?: string;
   archiveTree?: ArchiveTreeItem[];
+  intelligence?: FileIntelligenceResult;
   message?: string;
   metadata: {
     id: number;
@@ -640,11 +658,71 @@ function PreviewMetadata({ preview, onDownload }: { preview: FilePreviewResult; 
       {preview.message ? (
         <div className="mt-4 rounded-md border border-[#3f2d14] bg-[#140f08] p-3 text-xs text-[#f8d28b]">{preview.message}</div>
       ) : null}
+      <FileIntelligencePanel intelligence={preview.intelligence} />
       <button onClick={onDownload} className="mt-4 w-full rounded-md bg-[#2f80ed] px-4 py-2 text-sm font-semibold text-white">
         Download
       </button>
     </aside>
   );
+}
+
+function FileIntelligencePanel({ intelligence }: { intelligence?: FileIntelligenceResult }) {
+  if (!intelligence) {
+    return null;
+  }
+
+  return (
+    <section className="mt-4 rounded-md border border-[#263545] bg-[#0f151d] p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#9fb0bf]">File Intelligence</div>
+          <div className="mt-1 text-sm font-semibold text-white">{formatPreviewKind(intelligence.kind)} metadata</div>
+        </div>
+        <span className={`rounded border px-2 py-1 text-xs font-semibold ${getIntelligenceStatusClass(intelligence.status)}`}>
+          {intelligence.status}
+        </span>
+      </div>
+
+      {intelligence.sections.length ? (
+        <div className="mt-3 space-y-4">
+          {intelligence.sections.map((section) => (
+            <div key={section.title}>
+              <div className="text-xs font-semibold uppercase text-[#64748b]">{section.title}</div>
+              <div className="mt-2 grid gap-2">
+                {section.fields.map((field) => (
+                  <PreviewField key={`${section.title}-${field.label}`} label={field.label} value={field.value} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 text-xs text-[#9fb0bf]">No extractable metadata was found for this file.</div>
+      )}
+
+      {intelligence.warnings.length ? (
+        <div className="mt-3 space-y-2">
+          {intelligence.warnings.map((warning) => (
+            <div key={warning} className="rounded border border-[#3f2d14] bg-[#140f08] p-2 text-xs text-[#f8d28b]">
+              {warning}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function getIntelligenceStatusClass(status: FileIntelligenceResult["status"]): string {
+  if (status === "EXTRACTED") return "border-[#22c55e] bg-[#0d2618] text-[#86efac]";
+  if (status === "PARTIAL") return "border-[#3f2d14] bg-[#140f08] text-[#f8d28b]";
+  if (status === "FAILED") return "border-[#7f1d1d] bg-[#2a1010] text-[#fecaca]";
+
+  return "border-[#263545] bg-[#111820] text-[#9fb0bf]";
+}
+
+function formatPreviewKind(kind: FileIntelligenceResult["kind"]): string {
+  return kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
 function PreviewField({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
