@@ -117,7 +117,9 @@ export default function ActivityPage() {
         </div>
         <div className="divide-y divide-[#263545]">
           {activities.length === 0 ? (
-            <div className="p-4 text-sm text-[#9fb0bf]">{status}</div>
+            <div className="p-6 text-sm text-[#9fb0bf]">
+              No matching activity found. Adjust the filters or check back after project and file actions are recorded.
+            </div>
           ) : (
             activities.map((activity) => (
               <div key={activity.id} className="grid gap-3 p-4 md:grid-cols-[180px_1fr]">
@@ -127,7 +129,7 @@ export default function ActivityPage() {
                     <span className="rounded border border-[#263545] bg-[#0f151d] px-2 py-1 text-xs font-semibold text-[#38bdf8]">
                       {activity.action}
                     </span>
-                    <span className="text-sm text-white">{activity.details || `${activity.entityType} event`}</span>
+                    <span className="break-words text-sm text-white">{activity.details || `${activity.entityType} event`}</span>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-3 text-xs text-[#9fb0bf]">
                     <span>User: {activity.user?.username || "System"}</span>

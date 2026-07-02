@@ -1,4 +1,5 @@
 import type { FileIntelligenceResult } from "../file-intelligence/file-intelligence.types";
+import type { EngineeringDetectionResult } from "../engineering-detection/engineering-detection.types";
 
 export type PreviewKind = "pdf" | "image" | "video" | "text" | "archive" | "unsupported";
 
@@ -34,5 +35,6 @@ export interface FilePreviewResult {
   textContent?: string;
   archiveTree?: ArchiveTreeItem[];
   intelligence?: FileIntelligenceResult;
+  engineeringDetection?: EngineeringDetectionResult;
   message?: string;
 }

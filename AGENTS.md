@@ -43,8 +43,10 @@ Completed features:
 * File preview engine: users with download permission can preview supported PDFs, images, videos, text files, and archive file trees without changing download behavior.
 * Archive preview UX shows user-friendly informational notices when RAR/7Z folder listing is unavailable, while confirming upload integrity and download availability.
 * File intelligence metadata extraction: preview-time extraction for PDFs, images, videos, archives, and text files without AI, content mutation, or database caching.
+* Engineering detection layer: preview-time rule-based identification of PLC, robot, HMI, vision, and electrical engineering systems from filenames, archive entries, and existing metadata.
 * Enterprise metadata search: global topbar search, `/search` page, grouped results for projects, files, activities, and ADMIN-only users with metadata filters.
 * User-facing message presentation sanitizes developer-oriented details before displaying errors or preview limitations.
+* QA stabilization pass for page empty states, long text wrapping, explicit upload busy state, and manual release checklist.
 
 Current architecture:
 
@@ -61,8 +63,10 @@ Current architecture:
 * Preview service reuses file metadata, storage path safety, authentication, and file permissions; binary previews stream inline through authenticated API routes.
 * Preview UI translates archive preview limitations into end-user guidance and avoids exposing parser/tooling details.
 * File intelligence is an additive module under `src/modules/file-intelligence`; it runs on demand from the existing preview service after authorization and safe path resolution.
+* Engineering detection is an additive module under `src/modules/engineering-detection`; it runs on demand in the preview flow and does not persist results.
 * Enterprise search service performs permission-aware Prisma metadata searches across projects, customers, machine identifiers, files, engineering metadata, version notes, activities, and users.
 * Frontend API client preserves backend contracts while filtering technical implementation details from messages shown in the UI.
+* Manual QA coverage is tracked in `QA_CHECKLIST.md` for authentication, permissions, pages, file workflows, backup, restore, and regression checks.
 
 Database changes:
 
@@ -75,6 +79,7 @@ Database changes:
 * Added restore audit actions for disaster recovery operations.
 * Added engineering metadata fields to project files and file versions.
 * No database fields were added for file intelligence; extracted metadata is computed on demand to avoid migration and cache invalidation risk.
+* No database fields were added for engineering detection; detected type, confidence, evidence, and warnings are calculated on demand.
 
 API endpoints:
 

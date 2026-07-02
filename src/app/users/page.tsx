@@ -180,11 +180,11 @@ export default function UsersPage() {
                 users.map((user) => (
                   <tr key={user.id} className="border-t border-[#263545] text-[#d9e5ef]">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-white">{user.fullName || user.username}</div>
-                      <div className="text-xs text-[#748596]">{user.username}</div>
+                      <div className="break-words font-semibold text-white">{user.fullName || user.username}</div>
+                      <div className="break-all text-xs text-[#748596]">{user.username}</div>
                     </td>
-                    <td className="px-4 py-3">{user.department || "-"}</td>
-                    <td className="px-4 py-3">{user.email}</td>
+                    <td className="max-w-[180px] px-4 py-3"><span className="block break-words">{user.department || "-"}</span></td>
+                    <td className="max-w-[260px] px-4 py-3"><span className="block break-all">{user.email}</span></td>
                     <td className="px-4 py-3">
                       <RoleBadge role={user.role.name} />
                     </td>

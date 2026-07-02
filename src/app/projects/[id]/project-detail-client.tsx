@@ -5,7 +5,7 @@ import { StatusBadge } from "../../../components/ui/status-badge";
 import { downloadApiFile, getApi, getApiBlob, postFormApi } from "../../../lib/api-client";
 import { ENGINEERING_METADATA_OPTIONS, resolveEngineeringMetadataCode } from "../../../lib/engineering-metadata";
 import { formatBytes, formatDate, formatDateTime, shortHash } from "../../../lib/format";
-import { sanitizeUserMessage } from "../../../lib/user-messages";
+import { getUserErrorMessage, sanitizeUserMessage } from "../../../lib/user-messages";
 
 interface ProjectDetail {
   id: number;
@@ -169,6 +169,16 @@ interface FileIntelligenceResult {
   warnings: string[];
 }
 
+interface EngineeringDetectionResult {
+  detectedType: string | null;
+  category: "PLC" | "ROBOT" | "HMI" | "VISION" | "ELECTRICAL" | "UNKNOWN";
+  manufacturer: string | null;
+  platform: string | null;
+  confidence: number;
+  evidence: string[];
+  warnings: string[];
+}
+
 interface FilePreviewResult {
   kind: "pdf" | "image" | "video" | "text" | "archive" | "unsupported";
   contentType: string;
@@ -176,6 +186,7 @@ interface FilePreviewResult {
   textContent?: string;
   archiveTree?: ArchiveTreeItem[];
   intelligence?: FileIntelligenceResult;
+  engineeringDetection?: EngineeringDetectionResult;
   message?: string;
   metadata: {
     id: number;
@@ -215,7 +226,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
         setFilesStatus(result.length === 0 ? "No files uploaded." : `${result.length} file records`);
       })
       .catch((error) => {
-        setFilesStatus(error instanceof Error ? error.message : "Could not load files.");
+        setFilesStatus(getUserErrorMessage(error, "Could not load files."));
       });
   }
 
@@ -226,7 +237,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
         setStatus("Project loaded");
       })
       .catch((error) => {
-        setStatus(error instanceof Error ? error.message : "Could not load project.");
+        setStatus(getUserErrorMessage(error, "Could not load project."));
       });
   }, [projectId]);
 
@@ -262,7 +273,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
 
       setPreviewStatus(null);
     } catch (error) {
-      setPreviewStatus(error instanceof Error ? error.message : "Could not load preview.");
+      setPreviewStatus(getUserErrorMessage(error, "Could not load preview."));
     }
   }
 
@@ -354,7 +365,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
                   setDownloadStatus(`Downloaded ${fileName}.`);
                 })
                 .catch((error) => {
-                  setDownloadStatus(error instanceof Error ? error.message : "Could not download file.");
+                  setDownloadStatus(getUserErrorMessage(error, "Could not download file."));
                 });
             }}
             onPreview={openPreview}
@@ -416,7 +427,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
                 setDownloadStatus(`Downloaded ${fileName}.`);
               })
               .catch((error) => {
-                setDownloadStatus(error instanceof Error ? error.message : "Could not download file.");
+                setDownloadStatus(getUserErrorMessage(error, "Could not download file."));
               });
           }}
         />
@@ -561,7 +572,7 @@ function FileTabContent({
             ) : (
               files.map((file) => (
                 <tr key={file.id} className="border-t border-[#263545] text-[#d9e5ef]">
-                  <td className="px-4 py-3">{file.originalFileName}</td>
+                  <td className="max-w-[320px] px-4 py-3"><span className="block break-words">{file.originalFileName}</span></td>
                   <td className="px-4 py-3">{formatEngineeringMetadata(file)}</td>
                   <td className="px-4 py-3">
                     <span className="rounded border border-[#22c55e] bg-[#0d2618] px-2 py-1 text-xs font-semibold text-[#86efac]">
@@ -741,11 +752,78 @@ function PreviewMetadata({ preview, onDownload }: { preview: FilePreviewResult; 
         <PreviewField label="SHA256" value={metadata.checksum} mono />
       </div>
       {previewNotice ? <PreviewNoticeCard notice={previewNotice} /> : null}
+      <EngineeringDetectionPanel detection={preview.engineeringDetection} />
       <FileIntelligencePanel intelligence={preview.intelligence} />
       <button onClick={onDownload} className="mt-4 w-full rounded-md bg-[#2f80ed] px-4 py-2 text-sm font-semibold text-white">
         Download
       </button>
     </aside>
+  );
+}
+
+function EngineeringDetectionPanel({ detection }: { detection?: EngineeringDetectionResult }) {
+  if (!detection) {
+    return null;
+  }
+
+  const hasDetection = Boolean(detection.detectedType);
+
+  return (
+    <section className="mt-4 rounded-md border border-[#263545] bg-[#0f151d] p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#9fb0bf]">Engineering Detection</div>
+          <div className="mt-1 text-sm font-semibold text-white">
+            {hasDetection ? detection.detectedType : "No specific engineering system detected"}
+          </div>
+        </div>
+        <span className={`rounded border px-2 py-1 text-xs font-semibold ${getDetectionConfidenceClass(detection.confidence)}`}>
+          {detection.confidence}%
+        </span>
+      </div>
+
+      {hasDetection ? (
+        <div className="mt-3 grid gap-2 text-sm">
+          <PreviewField label="Detected Type" value={detection.detectedType || "-"} />
+          <PreviewField label="Category" value={detection.category} />
+          <PreviewField label="Manufacturer" value={detection.manufacturer || "-"} />
+          <PreviewField label="Platform / Software" value={detection.platform || "-"} />
+        </div>
+      ) : (
+        <div className="mt-3 rounded-md border border-[#263545] bg-[#111820] p-3 text-xs text-[#9fb0bf]">
+          No specific engineering system was detected from this file.
+        </div>
+      )}
+
+      {detection.evidence.length ? (
+        <div className="mt-3">
+          <div className="text-xs font-semibold uppercase text-[#64748b]">Evidence</div>
+          <ul className="mt-2 space-y-1 text-xs text-[#d9e5ef]">
+            {detection.evidence.map((item) => (
+              <li key={item} className="break-words rounded border border-[#263545] bg-[#111820] px-2 py-1">
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {detection.warnings.length ? (
+        <div className="mt-3 space-y-2">
+          {detection.warnings.map((warning) => (
+            <PreviewNoticeCard
+              key={warning}
+              compact
+              notice={{
+                type: "warning",
+                title: "Detection note",
+                body: sanitizeUserMessage(warning, "Additional engineering hints were found in this file."),
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -795,6 +873,13 @@ function FileIntelligencePanel({ intelligence }: { intelligence?: FileIntelligen
       ) : null}
     </section>
   );
+}
+
+function getDetectionConfidenceClass(confidence: number): string {
+  if (confidence >= 85) return "border-[#22c55e] bg-[#0d2618] text-[#86efac]";
+  if (confidence >= 60) return "border-[#3f2d14] bg-[#140f08] text-[#f8d28b]";
+
+  return "border-[#263545] bg-[#111820] text-[#9fb0bf]";
 }
 
 interface PreviewNotice {
@@ -995,7 +1080,7 @@ function PreviewLoading() {
 
 function ArchiveTree({ tree }: { tree: ArchiveTreeItem[] }) {
   if (tree.length === 0) {
-    return <div className="p-4 text-sm text-[#9fb0bf]">Archive is empty or its file list could not be read.</div>;
+    return <div className="p-4 text-sm text-[#9fb0bf]">No files were found in this archive preview. The original archive remains available for download.</div>;
   }
 
   return (
@@ -1058,6 +1143,7 @@ function UploadDialog({
   const [versionNo, setVersionNo] = useState("V1.0");
   const [changeNote, setChangeNote] = useState("");
   const [confirmWarnings, setConfirmWarnings] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const metadataOptions = ENGINEERING_METADATA_OPTIONS.filter((option) => option.category === category);
   const manufacturerOptions = Array.from(new Set(metadataOptions.map((option) => option.manufacturer)));
   const platformOptions = metadataOptions.filter((option) => option.manufacturer === manufacturer);
@@ -1074,6 +1160,7 @@ function UploadDialog({
     }
 
     try {
+      setIsUploading(true);
       const formData = new FormData();
       formData.set("file", file);
       formData.set("category", category);
@@ -1106,7 +1193,9 @@ function UploadDialog({
       onStatus("File uploaded.");
       onUploaded();
     } catch (error) {
-      onStatus(error instanceof Error ? error.message : "Upload failed.");
+      onStatus(getUserErrorMessage(error, "Upload could not be completed."));
+    } finally {
+      setIsUploading(false);
     }
   }
 
@@ -1115,7 +1204,7 @@ function UploadDialog({
       <div className="w-full max-w-2xl rounded-md border border-[#263545] bg-[#111820] p-4 shadow-xl">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold text-white">Upload Project File</h3>
-          <button onClick={onClose} className="rounded-md border border-[#263545] px-3 py-1 text-sm text-[#c6d3df]">
+          <button onClick={onClose} disabled={isUploading} className="rounded-md border border-[#263545] px-3 py-1 text-sm text-[#c6d3df] disabled:cursor-not-allowed disabled:opacity-40">
             Close
           </button>
         </div>
@@ -1208,20 +1297,20 @@ function UploadDialog({
 
           {prepareResult?.ready ? (
             <div className="rounded-md border border-[#263545] bg-[#0f151d] p-3 text-sm text-[#9fb0bf]">
-              <div>Stored name: {prepareResult.storedFileName}</div>
+              <div className="break-all">Stored name: {prepareResult.storedFileName}</div>
               <div>Version: {prepareResult.versionNo}</div>
-              <div>Path: {prepareResult.storagePath?.relativePath}</div>
+              <div className="break-all">Path: {prepareResult.storagePath?.relativePath}</div>
             </div>
           ) : null}
 
           {uploadStatus ? <div className="text-sm text-[#9fb0bf]">{uploadStatus}</div> : null}
 
           <div className="flex justify-end gap-2 border-t border-[#263545] pt-4">
-            <button type="button" onClick={onClose} className="rounded-md border border-[#263545] px-4 py-2 text-sm text-white">
+            <button type="button" onClick={onClose} disabled={isUploading} className="rounded-md border border-[#263545] px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40">
               Cancel
             </button>
-            <button type="submit" className="rounded-md bg-[#2f80ed] px-4 py-2 text-sm font-semibold text-white">
-              Upload File
+            <button type="submit" disabled={isUploading} className="rounded-md bg-[#2f80ed] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+              {isUploading ? "Uploading..." : "Upload File"}
             </button>
           </div>
         </form>

@@ -174,24 +174,32 @@ export default function ProjectsPage() {
               </tr>
             </thead>
             <tbody>
-              {projects.map((project) => (
-                <tr key={project.id} className="border-t border-[#263545] text-[#d9e5ef]">
-                  <td className="px-4 py-3">
-                    <Link href={`/projects/${project.id}`} className="font-semibold text-[#38bdf8]">
-                      {project.projectCode}
-                    </Link>
+              {projects.length === 0 ? (
+                <tr className="border-t border-[#263545] text-[#9fb0bf]">
+                  <td className="px-4 py-6" colSpan={8}>
+                    No matching projects found. Adjust the filters or create a new project.
                   </td>
-                  <td className="px-4 py-3">{project.customer.customerName}</td>
-                  <td className="px-4 py-3">{project.machineName}</td>
-                  <td className="px-4 py-3">{project.plcBrand || "-"}</td>
-                  <td className="px-4 py-3">{project.hmiBrand || "-"}</td>
-                  <td className="px-4 py-3">{project.robotBrand || "-"}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge value={project.status} />
-                  </td>
-                  <td className="px-4 py-3">{formatDate(project.updatedAt)}</td>
                 </tr>
-              ))}
+              ) : (
+                projects.map((project) => (
+                  <tr key={project.id} className="border-t border-[#263545] text-[#d9e5ef]">
+                    <td className="px-4 py-3">
+                      <Link href={`/projects/${project.id}`} className="font-semibold text-[#38bdf8]">
+                        {project.projectCode}
+                      </Link>
+                    </td>
+                    <td className="max-w-[220px] px-4 py-3"><span className="block break-words">{project.customer.customerName}</span></td>
+                    <td className="max-w-[260px] px-4 py-3"><span className="block break-words">{project.machineName}</span></td>
+                    <td className="px-4 py-3">{project.plcBrand || "-"}</td>
+                    <td className="px-4 py-3">{project.hmiBrand || "-"}</td>
+                    <td className="px-4 py-3">{project.robotBrand || "-"}</td>
+                    <td className="px-4 py-3">
+                      <StatusBadge value={project.status} />
+                    </td>
+                    <td className="px-4 py-3">{formatDate(project.updatedAt)}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

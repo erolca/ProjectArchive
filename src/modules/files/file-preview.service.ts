@@ -8,6 +8,7 @@ import { buildPathFromRelativeStoragePath, getActiveStorageConfig } from "../sto
 import { requirePermission } from "../auth/permissions";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { analyzeFileIntelligence } from "../file-intelligence/file-intelligence.service";
+import { detectEngineeringFile } from "../engineering-detection/engineering-detection.service";
 import { fileIdSchema } from "./file.validators";
 import type { ArchiveTreeItem, FilePreviewMetadata, FilePreviewResult, PreviewKind } from "./file-preview.types";
 
@@ -23,6 +24,7 @@ export async function getFilePreview(user: AuthenticatedUser, fileId: number): P
   const kind = getPreviewKind(file.originalFileName);
   const metadata = toPreviewMetadata(file);
   const contentType = getContentType(file.originalFileName);
+  const detectionInput = toDetectionInput(file);
 
   if (kind === "text") {
     return {
@@ -31,6 +33,7 @@ export async function getFilePreview(user: AuthenticatedUser, fileId: number): P
       metadata,
       textContent: await readTextPreview(file.absolutePath),
       intelligence: await analyzeFileIntelligence(file.absolutePath, file.originalFileName),
+      engineeringDetection: detectEngineeringFile(detectionInput),
     };
   }
 
@@ -43,6 +46,7 @@ export async function getFilePreview(user: AuthenticatedUser, fileId: number): P
       metadata,
       archiveTree,
       intelligence: await analyzeFileIntelligence(file.absolutePath, file.originalFileName, archiveTree),
+      engineeringDetection: detectEngineeringFile({ ...detectionInput, archiveTree }),
       message: archiveTree.length === 1 && archiveTree[0]?.type === "file" ? "Archive tree preview is limited for this format on this server." : undefined,
     };
   }
@@ -52,6 +56,7 @@ export async function getFilePreview(user: AuthenticatedUser, fileId: number): P
     contentType,
     metadata,
     intelligence: await analyzeFileIntelligence(file.absolutePath, file.originalFileName),
+    engineeringDetection: detectEngineeringFile(detectionInput),
     contentUrl: kind === "unsupported" ? undefined : `/api/files/${file.id}/preview/content`,
     message: kind === "unsupported" ? "Preview is not supported for this file type. Use Download to open it locally." : undefined,
   };
@@ -127,6 +132,16 @@ function toPreviewMetadata(file: Awaited<ReturnType<typeof resolvePreviewFile>>)
     fileSize: file.fileSize,
     checksum: file.checksum,
     version: file.currentVersionNo,
+  };
+}
+
+function toDetectionInput(file: Awaited<ReturnType<typeof resolvePreviewFile>>) {
+  return {
+    fileName: file.originalFileName,
+    category: file.category,
+    manufacturer: file.manufacturer,
+    platform: file.platform,
+    softwareName: file.softwareName,
   };
 }
 

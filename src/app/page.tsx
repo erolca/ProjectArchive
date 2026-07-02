@@ -152,7 +152,7 @@ export default function DashboardPage() {
                   ) : (
                     summary.lastUploadedFiles.map((file) => (
                       <tr key={file.id} className="border-t border-[#263545] text-[#d9e5ef]">
-                        <td className="px-4 py-3">{file.originalFileName}</td>
+                        <td className="max-w-[320px] px-4 py-3"><span className="block break-words">{file.originalFileName}</span></td>
                         <td className="px-4 py-3">
                           <Link href={`/projects/${file.project.id}`} className="font-semibold text-[#38bdf8]">
                             {file.project.projectCode}
