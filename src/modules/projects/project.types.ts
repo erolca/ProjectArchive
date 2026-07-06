@@ -33,7 +33,7 @@ export interface CreateProjectInput {
 }
 
 export type UpdateProjectInput = Partial<
-  Omit<CreateProjectInput, "projectCode" | "customer">
+  Omit<CreateProjectInput, "customer">
 > & {
   customer?: CustomerInput;
 };

@@ -66,9 +66,6 @@ export const createProjectSchema = z.object({
 });
 
 export const updateProjectSchema = createProjectSchema
-  .omit({
-    projectCode: true,
-  })
   .partial()
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one project field must be provided.",

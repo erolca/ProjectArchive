@@ -27,36 +27,41 @@ export async function getFilePreview(user: AuthenticatedUser, fileId: number): P
   const detectionInput = toDetectionInput(file);
 
   if (kind === "text") {
+    const intelligence = await analyzeFileIntelligence(file.absolutePath, file.originalFileName);
+
     return {
       kind,
       contentType,
       metadata,
       textContent: await readTextPreview(file.absolutePath),
-      intelligence: await analyzeFileIntelligence(file.absolutePath, file.originalFileName),
-      engineeringDetection: detectEngineeringFile(detectionInput),
+      intelligence,
+      engineeringDetection: detectEngineeringFile({ ...detectionInput, intelligence }),
     };
   }
 
   if (kind === "archive") {
     const archiveTree = await readArchiveTree(file.absolutePath, file.originalFileName);
+    const intelligence = await analyzeFileIntelligence(file.absolutePath, file.originalFileName, archiveTree);
 
     return {
       kind,
       contentType,
       metadata,
       archiveTree,
-      intelligence: await analyzeFileIntelligence(file.absolutePath, file.originalFileName, archiveTree),
-      engineeringDetection: detectEngineeringFile({ ...detectionInput, archiveTree }),
+      intelligence,
+      engineeringDetection: detectEngineeringFile({ ...detectionInput, archiveTree, intelligence }),
       message: archiveTree.length === 1 && archiveTree[0]?.type === "file" ? "Archive tree preview is limited for this format on this server." : undefined,
     };
   }
+
+  const intelligence = await analyzeFileIntelligence(file.absolutePath, file.originalFileName);
 
   return {
     kind,
     contentType,
     metadata,
-    intelligence: await analyzeFileIntelligence(file.absolutePath, file.originalFileName),
-    engineeringDetection: detectEngineeringFile(detectionInput),
+    intelligence,
+    engineeringDetection: detectEngineeringFile({ ...detectionInput, intelligence }),
     contentUrl: kind === "unsupported" ? undefined : `/api/files/${file.id}/preview/content`,
     message: kind === "unsupported" ? "Preview is not supported for this file type. Use Download to open it locally." : undefined,
   };

@@ -2,7 +2,8 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { StatusBadge } from "../../../components/ui/status-badge";
-import { downloadApiFile, getApi, getApiBlob, postFormApi } from "../../../lib/api-client";
+import { downloadApiFile, getApi, getApiBlob, postFormApi, putApi } from "../../../lib/api-client";
+import { useCurrentUser } from "../../../lib/current-user";
 import { ENGINEERING_METADATA_OPTIONS, resolveEngineeringMetadataCode } from "../../../lib/engineering-metadata";
 import { formatBytes, formatDate, formatDateTime, shortHash } from "../../../lib/format";
 import { getUserErrorMessage, sanitizeUserMessage } from "../../../lib/user-messages";
@@ -38,6 +39,18 @@ interface ProjectDetail {
   };
 }
 
+interface ProjectGeneralForm {
+  projectCode: string;
+  serialNumber: string;
+  customerName: string;
+  machineName: string;
+  machineType: string;
+  plcBrand: string;
+  hmiBrand: string;
+  robotBrand: string;
+  status: string;
+}
+
 const sectionGroups = [
   {
     label: "Overview",
@@ -64,6 +77,7 @@ const sectionGroups = [
     sections: ["Versions", "Activity"],
   },
 ];
+const projectStatusOptions = ["DESIGN", "SOFTWARE", "COMMISSIONING", "COMPLETED", "SERVICE", "ARCHIVED"];
 const fileTabs = new Set([
   "PLC",
   "HMI",
@@ -177,6 +191,24 @@ interface EngineeringDetectionResult {
   confidence: number;
   evidence: string[];
   warnings: string[];
+  scannerResults: EngineeringScannerResult[];
+}
+
+interface EngineeringScannerMetric {
+  label: string;
+  value: string | number | boolean;
+}
+
+interface EngineeringScannerResult {
+  scannerName: string;
+  detectedSystem: string;
+  manufacturer: string;
+  platform: string;
+  confidence: number;
+  summary: string;
+  metrics: EngineeringScannerMetric[];
+  evidence: string[];
+  warnings: string[];
 }
 
 interface FilePreviewResult {
@@ -206,8 +238,12 @@ interface FilePreviewResult {
 }
 
 export function ProjectDetailClient({ projectId }: { projectId: string }) {
+  const currentUser = useCurrentUser();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [status, setStatus] = useState("Loading project");
+  const [generalForm, setGeneralForm] = useState<ProjectGeneralForm | null>(null);
+  const [generalSaveMessage, setGeneralSaveMessage] = useState<string | null>(null);
+  const [isSavingGeneral, setIsSavingGeneral] = useState(false);
   const [activeTab, setActiveTab] = useState("General");
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
@@ -234,6 +270,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
     getApi<ProjectDetail>(`/api/projects/${projectId}`)
       .then((result) => {
         setProject(result);
+        setGeneralForm(toProjectGeneralForm(result));
         setStatus("Project loaded");
       })
       .catch((error) => {
@@ -274,6 +311,45 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
       setPreviewStatus(null);
     } catch (error) {
       setPreviewStatus(getUserErrorMessage(error, "Could not load preview."));
+    }
+  }
+
+  const canEditProject = currentUser?.role === "ADMIN" || currentUser?.role === "ENGINEER";
+  const generalChanges = project && generalForm ? buildProjectGeneralChanges(project, generalForm) : {};
+  const hasGeneralChanges = Object.keys(generalChanges).length > 0;
+
+  useEffect(() => {
+    if (!hasGeneralChanges) {
+      return;
+    }
+
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasGeneralChanges]);
+
+  async function saveProjectGeneralChanges() {
+    if (!project || !generalForm || !hasGeneralChanges) {
+      return;
+    }
+
+    setIsSavingGeneral(true);
+    setGeneralSaveMessage(null);
+
+    try {
+      const updatedProject = await putApi<ProjectDetail>(`/api/projects/${projectId}`, generalChanges);
+      setProject(updatedProject);
+      setGeneralForm(toProjectGeneralForm(updatedProject));
+      setGeneralSaveMessage("Project information saved.");
+    } catch (error) {
+      setGeneralSaveMessage(getUserErrorMessage(error, "Project information could not be saved."));
+    } finally {
+      setIsSavingGeneral(false);
     }
   }
 
@@ -333,17 +409,20 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
           <div className="text-xs text-[#9fb0bf]">{getSectionGroupLabel(activeTab)}</div>
         </div>
         {activeTab === "General" ? (
-          <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
-            <Field label="PLC Brand" value={project.plcBrand || "-"} />
-            <Field label="PLC Model" value={project.plcModel || "-"} />
-            <Field label="PLC Version" value={project.plcSoftwareVersion || "-"} />
-            <Field label="HMI Brand" value={project.hmiBrand || "-"} />
-            <Field label="HMI Model" value={project.hmiModel || "-"} />
-            <Field label="HMI Version" value={project.hmiSoftwareVersion || "-"} />
-            <Field label="Robot Brand" value={project.robotBrand || "-"} />
-            <Field label="Robot Model" value={project.robotModel || "-"} />
-            <Field label="Robot Controller" value={project.robotController || "-"} />
-          </dl>
+          generalForm ? (
+            <ProjectGeneralEditor
+              form={generalForm}
+              canEdit={Boolean(canEditProject)}
+              isSaving={isSavingGeneral}
+              hasChanges={hasGeneralChanges}
+              message={generalSaveMessage}
+              onChange={(field, value) => {
+                setGeneralForm((current) => (current ? { ...current, [field]: value } : current));
+                setGeneralSaveMessage(null);
+              }}
+              onSave={saveProjectGeneralChanges}
+            />
+          ) : null
         ) : fileTabs.has(activeTab) ? (
           <FileTabContent
             tab={activeTab}
@@ -507,6 +586,145 @@ function getSectionGroupLabel(section: string): string {
   const group = sectionGroups.find((item) => item.sections.includes(section));
 
   return group ? group.label : "Project Archive";
+}
+
+function ProjectGeneralEditor({
+  form,
+  canEdit,
+  isSaving,
+  hasChanges,
+  message,
+  onChange,
+  onSave,
+}: {
+  form: ProjectGeneralForm;
+  canEdit: boolean;
+  isSaving: boolean;
+  hasChanges: boolean;
+  message: string | null;
+  onChange: (field: keyof ProjectGeneralForm, value: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="mt-4 space-y-4">
+      {!canEdit ? (
+        <div className="rounded-md border border-[#263545] bg-[#0f151d] px-3 py-2 text-sm text-[#9fb0bf]">
+          You can view project information, but your role cannot edit it.
+        </div>
+      ) : null}
+      <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
+        <EditableField label="Project Code" value={form.projectCode} disabled={!canEdit || isSaving} onChange={(value) => onChange("projectCode", value.toUpperCase())} />
+        <EditableField label="Serial Number" value={form.serialNumber} disabled={!canEdit || isSaving} onChange={(value) => onChange("serialNumber", value.toUpperCase())} />
+        <EditableField label="Customer Name" value={form.customerName} disabled={!canEdit || isSaving} onChange={(value) => onChange("customerName", value)} />
+        <EditableField label="Machine Name" value={form.machineName} disabled={!canEdit || isSaving} onChange={(value) => onChange("machineName", value)} />
+        <EditableField label="Machine Type" value={form.machineType} disabled={!canEdit || isSaving} onChange={(value) => onChange("machineType", value)} />
+        <EditableField label="PLC Brand" value={form.plcBrand} disabled={!canEdit || isSaving} onChange={(value) => onChange("plcBrand", value)} />
+        <EditableField label="HMI Brand" value={form.hmiBrand} disabled={!canEdit || isSaving} onChange={(value) => onChange("hmiBrand", value)} />
+        <EditableField label="Robot Brand" value={form.robotBrand} disabled={!canEdit || isSaving} onChange={(value) => onChange("robotBrand", value)} />
+        <label className="block">
+          <span className="text-xs font-semibold uppercase text-[#64748b]">Project Status</span>
+          <select
+            value={form.status}
+            onChange={(event) => onChange("status", event.target.value)}
+            disabled={!canEdit || isSaving}
+            className="mt-1 h-10 w-full rounded-md border border-[#263545] bg-[#0b0f14] px-3 text-sm font-semibold text-white outline-none focus:border-[#2f80ed] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {projectStatusOptions.map((statusOption) => (
+              <option key={statusOption} value={statusOption}>
+                {statusOption}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-[#263545] pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-sm text-[#9fb0bf]">
+          {message || (hasChanges ? "Unsaved project information changes." : "Project information is up to date.")}
+        </div>
+        {canEdit && hasChanges ? (
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={isSaving}
+            className="h-10 rounded-md bg-[#2f80ed] px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSaving ? "Saving..." : "Save Changes"}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function EditableField({
+  label,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold uppercase text-[#64748b]">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+        className="mt-1 h-10 w-full rounded-md border border-[#263545] bg-[#0b0f14] px-3 text-sm text-white outline-none focus:border-[#2f80ed] disabled:cursor-not-allowed disabled:opacity-60"
+      />
+    </label>
+  );
+}
+
+function toProjectGeneralForm(project: ProjectDetail): ProjectGeneralForm {
+  return {
+    projectCode: project.projectCode,
+    serialNumber: project.serialNumber,
+    customerName: project.customer.customerName,
+    machineName: project.machineName,
+    machineType: project.machineType || "",
+    plcBrand: project.plcBrand || "",
+    hmiBrand: project.hmiBrand || "",
+    robotBrand: project.robotBrand || "",
+    status: project.status,
+  };
+}
+
+function buildProjectGeneralChanges(project: ProjectDetail, form: ProjectGeneralForm): Record<string, unknown> {
+  const initial = toProjectGeneralForm(project);
+  const changes: Record<string, unknown> = {};
+
+  addStringChange(changes, "projectCode", initial.projectCode, form.projectCode);
+  addStringChange(changes, "serialNumber", initial.serialNumber, form.serialNumber);
+  addStringChange(changes, "machineName", initial.machineName, form.machineName);
+  addStringChange(changes, "machineType", initial.machineType, form.machineType);
+  addStringChange(changes, "plcBrand", initial.plcBrand, form.plcBrand);
+  addStringChange(changes, "hmiBrand", initial.hmiBrand, form.hmiBrand);
+  addStringChange(changes, "robotBrand", initial.robotBrand, form.robotBrand);
+  addStringChange(changes, "status", initial.status, form.status);
+
+  if (normalizeFormValue(initial.customerName) !== normalizeFormValue(form.customerName)) {
+    changes.customer = {
+      customerName: normalizeFormValue(form.customerName),
+    };
+  }
+
+  return changes;
+}
+
+function addStringChange(changes: Record<string, unknown>, key: string, oldValue: string, newValue: string): void {
+  if (normalizeFormValue(oldValue) !== normalizeFormValue(newValue)) {
+    changes[key] = normalizeFormValue(newValue);
+  }
+}
+
+function normalizeFormValue(value: string): string {
+  return value.trim();
 }
 
 function formatSectionOption(section: string, files: ProjectFileRow[]): string {
@@ -753,6 +971,7 @@ function PreviewMetadata({ preview, onDownload }: { preview: FilePreviewResult; 
       </div>
       {previewNotice ? <PreviewNoticeCard notice={previewNotice} /> : null}
       <EngineeringDetectionPanel detection={preview.engineeringDetection} />
+      <EngineeringScannerPanel scanners={preview.engineeringDetection?.scannerResults || []} />
       <FileIntelligencePanel intelligence={preview.intelligence} />
       <button onClick={onDownload} className="mt-4 w-full rounded-md bg-[#2f80ed] px-4 py-2 text-sm font-semibold text-white">
         Download
@@ -823,6 +1042,76 @@ function EngineeringDetectionPanel({ detection }: { detection?: EngineeringDetec
           ))}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function EngineeringScannerPanel({ scanners }: { scanners: EngineeringScannerResult[] }) {
+  if (!scanners.length) {
+    return (
+      <section className="mt-4 rounded-md border border-[#263545] bg-[#0f151d] p-3">
+        <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#9fb0bf]">Engineering Scanner</div>
+        <div className="mt-2 text-xs text-[#9fb0bf]">No vendor-specific scanner details were found for this file.</div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-4 rounded-md border border-[#263545] bg-[#0f151d] p-3">
+      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#9fb0bf]">Engineering Scanner</div>
+      <div className="mt-3 space-y-3">
+        {scanners.slice(0, 3).map((scanner) => (
+          <div key={`${scanner.scannerName}-${scanner.detectedSystem}`} className="rounded-md border border-[#263545] bg-[#111820] p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="break-words text-sm font-semibold text-white">{scanner.detectedSystem}</div>
+                <div className="mt-1 text-xs text-[#9fb0bf]">{scanner.scannerName}</div>
+              </div>
+              <span className={`rounded border px-2 py-1 text-xs font-semibold ${getDetectionConfidenceClass(scanner.confidence)}`}>
+                {scanner.confidence}%
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-[#d9e5ef]">{scanner.summary}</p>
+
+            {scanner.metrics.length ? (
+              <div className="mt-3 grid gap-2">
+                {scanner.metrics.map((metric) => (
+                  <PreviewField key={`${scanner.scannerName}-${metric.label}`} label={metric.label} value={String(metric.value)} />
+                ))}
+              </div>
+            ) : null}
+
+            {scanner.evidence.length ? (
+              <div className="mt-3">
+                <div className="text-xs font-semibold uppercase text-[#64748b]">Evidence</div>
+                <ul className="mt-2 space-y-1 text-xs text-[#d9e5ef]">
+                  {scanner.evidence.slice(0, 6).map((item) => (
+                    <li key={item} className="break-words rounded border border-[#263545] bg-[#0f151d] px-2 py-1">
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {scanner.warnings.length ? (
+              <div className="mt-3 space-y-2">
+                {scanner.warnings.map((warning) => (
+                  <PreviewNoticeCard
+                    key={warning}
+                    compact
+                    notice={{
+                      type: "information",
+                      title: "Scanner note",
+                      body: sanitizeUserMessage(warning, "Some scanner details could not be extracted."),
+                    }}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

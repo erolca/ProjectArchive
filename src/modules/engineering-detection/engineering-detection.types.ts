@@ -1,6 +1,24 @@
 import type { ArchiveTreeItem } from "../files/file-preview.types";
+import type { FileIntelligenceResult } from "../file-intelligence/file-intelligence.types";
 
 export type EngineeringDetectionCategory = "PLC" | "ROBOT" | "HMI" | "VISION" | "ELECTRICAL" | "UNKNOWN";
+
+export interface EngineeringScannerMetric {
+  label: string;
+  value: string | number | boolean;
+}
+
+export interface EngineeringScannerResult {
+  scannerName: string;
+  detectedSystem: string;
+  manufacturer: string;
+  platform: string;
+  confidence: number;
+  summary: string;
+  metrics: EngineeringScannerMetric[];
+  evidence: string[];
+  warnings: string[];
+}
 
 export interface EngineeringDetectionInput {
   fileName: string;
@@ -9,6 +27,7 @@ export interface EngineeringDetectionInput {
   platform?: string | null;
   softwareName?: string | null;
   archiveTree?: ArchiveTreeItem[];
+  intelligence?: FileIntelligenceResult;
 }
 
 export interface EngineeringDetectionResult {
@@ -19,4 +38,5 @@ export interface EngineeringDetectionResult {
   confidence: number;
   evidence: string[];
   warnings: string[];
+  scannerResults: EngineeringScannerResult[];
 }

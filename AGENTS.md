@@ -29,6 +29,8 @@ Completed features:
 * Local disk/NAS-ready storage foundation with safe paths, project folders, filename sanitizing, SHA256 checksums, and path traversal protection.
 * Authentication foundation with password hashing, JWT sessions, current-user resolution, role permissions, and default seed support.
 * Project backend and UI for create, list, search, filter, sort, detail, and short-link lookup.
+* Project status can be updated from the Project Detail General section by users with project edit permission.
+* Project General Information can be edited after creation with a single Save Changes action and per-field audit logging that records old value, new value, user, and timestamp.
 * File backend and UI for real browser upload, metadata persistence, version history, duplicate checksum detection, and streamed downloads.
 * Machine digital archive section selector for PLC, HMI, Robot, Electrical, Mechanical, Pneumatic, Vision, Camera, Photos, Videos, FAT, SAT, Spare Parts, Service, Commissioning, Backups, and Documents.
 * Dashboard with project, customer, backup, machine archive, recent upload, and activity metrics.
@@ -44,6 +46,7 @@ Completed features:
 * Archive preview UX shows user-friendly informational notices when RAR/7Z folder listing is unavailable, while confirming upload integrity and download availability.
 * File intelligence metadata extraction: preview-time extraction for PDFs, images, videos, archives, and text files without AI, content mutation, or database caching.
 * Engineering detection layer: preview-time rule-based identification of PLC, robot, HMI, vision, and electrical engineering systems from filenames, archive entries, and existing metadata.
+* Vendor engineering scanners: lightweight read-only scanners for Beckhoff TwinCAT, Siemens TIA/STEP7, Yaskawa, KUKA, ABB, and PDF/document hints.
 * Enterprise metadata search: global topbar search, `/search` page, grouped results for projects, files, activities, and ADMIN-only users with metadata filters.
 * User-facing message presentation sanitizes developer-oriented details before displaying errors or preview limitations.
 * QA stabilization pass for page empty states, long text wrapping, explicit upload busy state, and manual release checklist.
@@ -60,10 +63,13 @@ Current architecture:
 * Restore service reads selected `BackupRun` destinations, validates all source/destination paths, and restores into `STORAGE_ROOT/projects` unless an explicit alternative restore location is selected.
 * File upload metadata uses structured engineering definitions and maps friendly selections such as Beckhoff/TwinCAT 3 to uppercase internal platform codes for compatibility.
 * Project Detail uses a grouped section selector instead of horizontal archive tabs, while preserving the same section state and file actions.
+* Project status updates reuse the existing project update API and log status-change details in ActivityLog.
+* Project General edits reuse `PUT /api/projects/[id]`, send only modified fields, and remain disabled for read-only roles.
 * Preview service reuses file metadata, storage path safety, authentication, and file permissions; binary previews stream inline through authenticated API routes.
 * Preview UI translates archive preview limitations into end-user guidance and avoids exposing parser/tooling details.
 * File intelligence is an additive module under `src/modules/file-intelligence`; it runs on demand from the existing preview service after authorization and safe path resolution.
 * Engineering detection is an additive module under `src/modules/engineering-detection`; it runs on demand in the preview flow and does not persist results.
+* Vendor scanners live under `src/modules/engineering-detection/scanners`; they reuse preview archive trees and existing metadata, and they never extract archives permanently.
 * Enterprise search service performs permission-aware Prisma metadata searches across projects, customers, machine identifiers, files, engineering metadata, version notes, activities, and users.
 * Frontend API client preserves backend contracts while filtering technical implementation details from messages shown in the UI.
 * Manual QA coverage is tracked in `QA_CHECKLIST.md` for authentication, permissions, pages, file workflows, backup, restore, and regression checks.
@@ -80,6 +86,7 @@ Database changes:
 * Added engineering metadata fields to project files and file versions.
 * No database fields were added for file intelligence; extracted metadata is computed on demand to avoid migration and cache invalidation risk.
 * No database fields were added for engineering detection; detected type, confidence, evidence, and warnings are calculated on demand.
+* No database fields were added for vendor scanner output; scanner summaries, metrics, evidence, and warnings are calculated during preview.
 
 API endpoints:
 

@@ -36,6 +36,9 @@ const PROJECT_DETAIL_INCLUDE = {
   },
 } satisfies Prisma.ProjectInclude;
 
+type ProjectWithCustomer = Prisma.ProjectGetPayload<{ include: { customer: true } }>;
+type ProjectDetailPayload = Prisma.ProjectGetPayload<{ include: typeof PROJECT_DETAIL_INCLUDE }>;
+
 export async function createProject(user: AuthenticatedUser, input: CreateProjectInput) {
   requirePermission(user, "projects:create");
 
@@ -106,11 +109,15 @@ export async function updateProject(user: AuthenticatedUser, projectId: number, 
 
   const id = projectIdSchema.parse(projectId);
   const data = updateProjectSchema.parse(input);
+  const rawInput = input as Record<string, unknown>;
 
   const existingProject = await prisma.project.findFirst({
     where: {
       id,
       deletedAt: null,
+    },
+    include: {
+      customer: true,
     },
   });
 
@@ -122,27 +129,33 @@ export async function updateProject(user: AuthenticatedUser, projectId: number, 
     await assertSerialNumberAvailable(data.serialNumber, id);
   }
 
+  if (data.projectCode && data.projectCode !== existingProject.projectCode) {
+    await assertProjectCodeAvailable(data.projectCode, id);
+    await createProjectFolders(data.projectCode);
+  }
+
   const customerId = data.customer ? (await resolveCustomer(data.customer)).id : existingProject.customerId;
   const project = await prisma.project.update({
     where: {
       id,
     },
     data: {
+      projectCode: data.projectCode,
       serialNumber: data.serialNumber,
       machineName: data.machineName,
-      machineType: data.machineType,
+      machineType: nullableUpdateValue(data.machineType, rawInput, "machineType"),
       customerId,
       status: data.status,
       description: data.description,
       customerFactory: data.customerFactory,
       lineName: data.lineName,
-      plcBrand: data.plcBrand,
+      plcBrand: nullableUpdateValue(data.plcBrand, rawInput, "plcBrand"),
       plcModel: data.plcModel,
       plcSoftwareVersion: data.plcSoftwareVersion,
-      hmiBrand: data.hmiBrand,
+      hmiBrand: nullableUpdateValue(data.hmiBrand, rawInput, "hmiBrand"),
       hmiModel: data.hmiModel,
       hmiSoftwareVersion: data.hmiSoftwareVersion,
-      robotBrand: data.robotBrand,
+      robotBrand: nullableUpdateValue(data.robotBrand, rawInput, "robotBrand"),
       robotModel: data.robotModel,
       robotController: data.robotController,
       robotSoftwareVersion: data.robotSoftwareVersion,
@@ -152,14 +165,18 @@ export async function updateProject(user: AuthenticatedUser, projectId: number, 
     include: PROJECT_DETAIL_INCLUDE,
   });
 
-  await logActivity({
-    userId: user.id,
-    projectId: project.id,
-    action: ActivityAction.PROJECT_UPDATED,
-    entityType: "Project",
-    entityId: project.id,
-    details: `Project ${project.projectCode} updated.`,
-  });
+  const changeLogs = buildProjectChangeLogs(existingProject, project, user);
+
+  for (const details of changeLogs) {
+    await logActivity({
+      userId: user.id,
+      projectId: project.id,
+      action: ActivityAction.PROJECT_UPDATED,
+      entityType: "Project",
+      entityId: project.id,
+      details,
+    });
+  }
 
   return project;
 }
@@ -237,14 +254,14 @@ async function resolveCustomer(input: CustomerInput) {
   });
 }
 
-async function assertProjectCodeAvailable(projectCode: string): Promise<void> {
+async function assertProjectCodeAvailable(projectCode: string, excludeProjectId?: number): Promise<void> {
   const existing = await prisma.project.findUnique({
     where: {
       projectCode,
     },
   });
 
-  if (existing) {
+  if (existing && existing.id !== excludeProjectId) {
     throw new Error("Project code already exists.");
   }
 }
@@ -274,4 +291,51 @@ function buildCustomerCode(customerName: string): string {
   }
 
   return normalized.slice(0, 50);
+}
+
+function buildProjectChangeLogs(
+  before: ProjectWithCustomer,
+  after: ProjectDetailPayload,
+  user: AuthenticatedUser,
+): string[] {
+  const actor = user.fullName || user.username;
+  const changes: Array<[string, string | null | undefined, string | null | undefined]> = [
+    ["Project Code", before.projectCode, after.projectCode],
+    ["Serial Number", before.serialNumber, after.serialNumber],
+    ["Customer Name", before.customer.customerName, after.customer.customerName],
+    ["Machine Name", before.machineName, after.machineName],
+    ["Machine Type", before.machineType, after.machineType],
+    ["PLC Brand", before.plcBrand, after.plcBrand],
+    ["HMI Brand", before.hmiBrand, after.hmiBrand],
+    ["Robot Brand", before.robotBrand, after.robotBrand],
+    ["Project Status", before.status, after.status],
+  ];
+
+  return changes
+    .filter(([, oldValue, newValue]) => normalizeLogValue(oldValue) !== normalizeLogValue(newValue))
+    .map(([label, oldValue, newValue]) => `${label} changed: ${formatLogValue(oldValue)} -> ${formatLogValue(newValue)} by ${actor}.`);
+}
+
+function normalizeLogValue(value: string | null | undefined): string {
+  return value?.trim() || "";
+}
+
+function formatLogValue(value: string | null | undefined): string {
+  return normalizeLogValue(value) || "-";
+}
+
+function nullableUpdateValue(
+  parsedValue: string | undefined,
+  rawInput: Record<string, unknown>,
+  key: string,
+): string | null | undefined {
+  if (!Object.prototype.hasOwnProperty.call(rawInput, key)) {
+    return undefined;
+  }
+
+  if (typeof rawInput[key] === "string" && rawInput[key].trim() === "") {
+    return null;
+  }
+
+  return parsedValue;
 }

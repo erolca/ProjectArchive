@@ -5,6 +5,7 @@ import type {
   EngineeringDetectionInput,
   EngineeringDetectionResult,
 } from "./engineering-detection.types";
+import { runEngineeringScanners } from "./scanners";
 
 interface DetectionRule {
   detectedType: string;
@@ -66,6 +67,7 @@ const DETECTION_RULES: DetectionRule[] = [
 export function detectEngineeringFile(input: EngineeringDetectionInput): EngineeringDetectionResult {
   const candidates = buildCandidates(input);
   const evidence: string[] = [];
+  const scannerResults = runEngineeringScanners(input);
 
   if (input.category) evidence.push(`Uploaded category: ${input.category}`);
   if (input.manufacturer) evidence.push(`Uploaded manufacturer: ${input.manufacturer}`);
@@ -88,7 +90,10 @@ export function detectEngineeringFile(input: EngineeringDetectionInput): Enginee
   const bestRule = ruleMatches.sort((left, right) => right.rule.confidence - left.rule.confidence)[0];
 
   if (!bestRule && metadataResult) {
-    return metadataResult;
+    return {
+      ...metadataResult,
+      scannerResults,
+    };
   }
 
   if (!bestRule) {
@@ -100,6 +105,7 @@ export function detectEngineeringFile(input: EngineeringDetectionInput): Enginee
       confidence: 0,
       evidence: [],
       warnings: ["No specific engineering system was detected from this file."],
+      scannerResults,
     };
   }
 
@@ -123,6 +129,7 @@ export function detectEngineeringFile(input: EngineeringDetectionInput): Enginee
     warnings: conflictingMatches.length
       ? [`Additional engineering hints were found: ${conflictingMatches.slice(0, 3).join(", ")}.`]
       : [],
+    scannerResults,
   };
 }
 
@@ -148,6 +155,7 @@ function detectFromMetadata(input: EngineeringDetectionInput, evidence: string[]
       confidence: 70,
       evidence,
       warnings: [],
+      scannerResults: [],
     };
   }
 
@@ -163,6 +171,7 @@ function detectFromMetadata(input: EngineeringDetectionInput, evidence: string[]
     confidence: 82,
     evidence,
     warnings: [],
+    scannerResults: [],
   };
 }
 
