@@ -181,6 +181,21 @@ interface CategoryIntelligenceSummary {
   lastUploadDate: string | null;
 }
 
+type HealthItemStatus = "pass" | "warning" | "missing";
+
+interface ArchiveHealthItem {
+  label: string;
+  status: HealthItemStatus;
+  suggestion?: string;
+}
+
+interface ArchiveHealthAnalysis {
+  score: number;
+  badge: "Excellent" | "Good" | "Fair" | "Needs Attention";
+  items: ArchiveHealthItem[];
+  suggestions: string[];
+}
+
 interface ArchiveTreeItem {
   name: string;
   path: string;
@@ -634,7 +649,7 @@ function ProjectIntelligenceCard({
 }) {
   const summaries = buildProjectIntelligenceSummaries(files);
   const summaryByCategory = Object.fromEntries(summaries.map((summary) => [summary.category, summary]));
-  const health = calculateArchiveHealth(summaries, backupStatus);
+  const health = analyzeArchiveHealth(project, summaries, backupStatus);
 
   return (
     <section className="rounded-md border border-[#263545] bg-[#0f151d] p-5">
@@ -660,12 +675,37 @@ function ProjectIntelligenceCard({
 
       <div className="mt-4 border-b border-[#263545] pb-4">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-semibold text-white">Archive Health</div>
-          <div className="text-lg font-semibold text-[#86efac]">{health}%</div>
+          <div>
+            <div className="text-sm font-semibold text-white">Archive Health</div>
+            <div className="mt-1 text-xs text-[#9fb0bf]">Completeness analysis based on existing archive records.</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`rounded border px-2 py-1 text-xs font-semibold ${getHealthBadgeClass(health.badge)}`}>
+              {health.badge}
+            </span>
+            <div className="text-lg font-semibold text-[#86efac]">{health.score}%</div>
+          </div>
         </div>
         <div className="mt-3 h-3 overflow-hidden rounded-full bg-[#263545]">
-          <div className="h-full rounded-full bg-[#22c55e]" style={{ width: `${health}%` }} />
+          <div className="h-full rounded-full bg-[#22c55e]" style={{ width: `${health.score}%` }} />
         </div>
+        <div className="mt-4 grid gap-2 md:grid-cols-2">
+          {health.items.map((item) => (
+            <HealthChecklistRow key={item.label} item={item} />
+          ))}
+        </div>
+        {health.suggestions.length > 0 ? (
+          <div className="mt-4 rounded-md border border-[#3f3320] bg-[#1a140b] p-3">
+            <div className="text-xs font-semibold uppercase text-[#f8d28b]">Suggestions</div>
+            <ul className="mt-2 space-y-1 text-xs text-[#f8d28b]">
+              {health.suggestions.slice(0, 5).map((suggestion) => (
+                <li key={suggestion} className="break-words">
+                  {suggestion}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
@@ -675,6 +715,23 @@ function ProjectIntelligenceCard({
         <IntelligenceLine label="Last Uploaded File" value={getLastUploadedFile(files)?.originalFileName || "No files uploaded"} />
       </div>
     </section>
+  );
+}
+
+function HealthChecklistRow({ item }: { item: ArchiveHealthItem }) {
+  return (
+    <div className="flex min-w-0 items-start gap-2 rounded-md border border-[#263545] bg-[#111820] px-3 py-2">
+      <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${getHealthDotClass(item.status)}`} />
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="break-words text-sm font-semibold text-white">{item.label}</span>
+          <span className={`rounded border px-2 py-0.5 text-[11px] font-semibold uppercase ${getHealthStatusClass(item.status)}`}>
+            {item.status}
+          </span>
+        </div>
+        {item.suggestion ? <div className="mt-1 break-words text-xs text-[#9fb0bf]">{item.suggestion}</div> : null}
+      </div>
+    </div>
   );
 }
 
@@ -1795,6 +1852,9 @@ function buildProjectIntelligenceSummaries(files: ProjectFileRow[]): CategoryInt
     buildCategoryIntelligenceSummary("Vision", "VISION", files),
     buildCategoryIntelligenceSummary("Electrical", "ELECTRICAL", files),
     buildCategoryIntelligenceSummary("Mechanical", "MECHANICAL", files),
+    buildCategoryIntelligenceSummary("FAT", "FAT", files),
+    buildCategoryIntelligenceSummary("SAT", "SAT", files),
+    buildCategoryIntelligenceSummary("Service", "SERVICE", files),
     buildCategoryIntelligenceSummary("Backup", "BACKUP", files),
   ];
 }
@@ -1839,28 +1899,140 @@ function formatSystemSummary(summary?: CategoryIntelligenceSummary, fallback?: s
   return fallback?.trim() || "Not uploaded yet";
 }
 
-function calculateArchiveHealth(summaries: CategoryIntelligenceSummary[], backupStatus: BackupStatusSummary | null): number {
-  const requiredCategories = ["PLC", "HMI", "ROBOT", "VISION", "ELECTRICAL", "MECHANICAL"];
-  const availableCategories = requiredCategories.filter((category) => summaries.some((summary) => summary.category === category && summary.fileCount > 0));
-  const categoryScore = (availableCategories.length / requiredCategories.length) * 75;
-  const metadataScore = calculateMetadataCompleteness(summaries) * 15;
-  const backupScore = isSuccessfulBackupStatus(backupStatus?.lastBackup?.status || backupStatus?.status) ? 10 : 0;
+function analyzeArchiveHealth(
+  project: ProjectDetail,
+  summaries: CategoryIntelligenceSummary[],
+  backupStatus: BackupStatusSummary | null,
+): ArchiveHealthAnalysis {
+  const hasCategory = (category: string) => summaries.some((summary) => summary.category === category && summary.fileCount > 0);
+  const backupAvailable = hasCategory("BACKUP") || Boolean(backupStatus?.lastBackup?.finishedAt);
+  const backupStatusValue = backupStatus?.lastBackup?.status || backupStatus?.status;
+  const projectInfoStatus = getProjectInformationStatus(project);
+  const items: ArchiveHealthItem[] = [
+    buildCategoryHealthItem("PLC uploaded", "PLC", hasCategory("PLC")),
+    buildCategoryHealthItem("HMI uploaded", "HMI", hasCategory("HMI")),
+    buildCategoryHealthItem("Robot uploaded", "Robot", hasCategory("ROBOT")),
+    buildCategoryHealthItem("Vision uploaded", "Vision", hasCategory("VISION")),
+    buildCategoryHealthItem("Electrical uploaded", "Electrical", hasCategory("ELECTRICAL")),
+    buildCategoryHealthItem("Mechanical uploaded", "Mechanical", hasCategory("MECHANICAL")),
+    buildCategoryHealthItem("FAT uploaded", "FAT", hasCategory("FAT")),
+    buildCategoryHealthItem("SAT uploaded", "SAT", hasCategory("SAT")),
+    buildCategoryHealthItem("Service documents uploaded", "Service", hasCategory("SERVICE")),
+    {
+      label: "Backup available",
+      status: backupAvailable ? "pass" : "missing",
+      suggestion: backupAvailable ? undefined : "Upload a project backup archive or run a system backup.",
+    },
+    {
+      label: "Backup verified",
+      status: isSuccessfulBackupStatus(backupStatusValue) ? "warning" : "missing",
+      suggestion: isSuccessfulBackupStatus(backupStatusValue)
+        ? "Latest backup completed. Run backup verification from Settings to confirm integrity."
+        : "Run and verify a backup from Settings.",
+    },
+    {
+      label: "Restore tested",
+      status: "missing",
+      suggestion: "Run a restore dry run and record the result when restore history is available.",
+    },
+    {
+      label: "Project information completed",
+      status: projectInfoStatus,
+      suggestion: projectInfoStatus === "pass" ? undefined : "Complete project code, serial number, customer, machine name, machine type, and status.",
+    },
+  ];
+  const total = items.reduce((sum, item) => sum + (item.status === "pass" ? 1 : item.status === "warning" ? 0.5 : 0), 0);
+  const score = Math.round((total / items.length) * 100);
+  const suggestions = items
+    .filter((item) => item.status !== "pass" && item.suggestion)
+    .map((item) => item.suggestion as string);
 
-  return Math.max(0, Math.min(100, Math.round(categoryScore + metadataScore + backupScore)));
+  return {
+    score,
+    badge: getHealthBadge(score),
+    items,
+    suggestions,
+  };
 }
 
-function calculateMetadataCompleteness(summaries: CategoryIntelligenceSummary[]): number {
-  const uploaded = summaries.filter((summary) => summary.fileCount > 0 && summary.category !== "BACKUP");
+function buildCategoryHealthItem(label: string, displayCategory: string, exists: boolean): ArchiveHealthItem {
+  return {
+    label,
+    status: exists ? "pass" : "missing",
+    suggestion: exists ? undefined : `Upload ${displayCategory} archive files for this project.`,
+  };
+}
 
-  if (uploaded.length === 0) {
-    return 0;
+function getProjectInformationStatus(project: ProjectDetail): HealthItemStatus {
+  const requiredFields = [
+    project.projectCode,
+    project.serialNumber,
+    project.customer.customerName,
+    project.machineName,
+    project.status,
+  ];
+
+  if (requiredFields.some((field) => !field?.trim())) {
+    return "missing";
   }
 
-  const complete = uploaded.filter(
-    (summary) => summary.manufacturer !== "-" || summary.softwareName !== "-" || summary.softwareVersion !== "-",
-  );
+  return project.machineType?.trim() ? "pass" : "warning";
+}
 
-  return complete.length / uploaded.length;
+function getHealthBadge(score: number): ArchiveHealthAnalysis["badge"] {
+  if (score >= 90) {
+    return "Excellent";
+  }
+
+  if (score >= 75) {
+    return "Good";
+  }
+
+  if (score >= 55) {
+    return "Fair";
+  }
+
+  return "Needs Attention";
+}
+
+function getHealthBadgeClass(badge: ArchiveHealthAnalysis["badge"]): string {
+  if (badge === "Excellent") {
+    return "border-[#22c55e] bg-[#0d2618] text-[#86efac]";
+  }
+
+  if (badge === "Good") {
+    return "border-[#2f80ed] bg-[#10243b] text-[#93c5fd]";
+  }
+
+  if (badge === "Fair") {
+    return "border-[#f59e0b] bg-[#241908] text-[#f8d28b]";
+  }
+
+  return "border-[#ef4444] bg-[#2a1111] text-[#fca5a5]";
+}
+
+function getHealthDotClass(status: HealthItemStatus): string {
+  if (status === "pass") {
+    return "bg-[#22c55e]";
+  }
+
+  if (status === "warning") {
+    return "bg-[#f59e0b]";
+  }
+
+  return "bg-[#ef4444]";
+}
+
+function getHealthStatusClass(status: HealthItemStatus): string {
+  if (status === "pass") {
+    return "border-[#22c55e] bg-[#0d2618] text-[#86efac]";
+  }
+
+  if (status === "warning") {
+    return "border-[#f59e0b] bg-[#241908] text-[#f8d28b]";
+  }
+
+  return "border-[#ef4444] bg-[#2a1111] text-[#fca5a5]";
 }
 
 function formatLatestBackupStatus(backupStatus: BackupStatusSummary | null): string {
@@ -1871,7 +2043,7 @@ function formatLatestBackupStatus(backupStatus: BackupStatusSummary | null): str
   }
 
   if (isSuccessfulBackupStatus(status)) {
-    return "Verified";
+    return "Completed";
   }
 
   return status.replaceAll("_", " ");

@@ -31,7 +31,7 @@ Completed features:
 * Project backend and UI for create, list, search, filter, sort, detail, and short-link lookup.
 * Project status can be updated from the Project Detail General section by users with project edit permission.
 * Project General Information can be edited after creation with a single Save Changes action and per-field audit logging that records old value, new value, user, and timestamp.
-* Project Detail General view includes a compact Project Intelligence summary with key systems, archive health, latest backup, and last update using existing project metadata, uploaded file metadata, archive versions, and backup status.
+* Project Detail General view includes a compact Project Intelligence summary with key systems, archive health scoring, completeness checklist, suggestions, latest backup, and last update using existing project metadata, uploaded file metadata, archive versions, and backup status.
 * File backend and UI for real browser upload, metadata persistence, version history, duplicate checksum detection, and streamed downloads.
 * Machine digital archive section selector for PLC, HMI, Robot, Electrical, Mechanical, Pneumatic, Vision, Camera, Photos, Videos, FAT, SAT, Spare Parts, Service, Commissioning, Backups, and Documents.
 * Dashboard with project, customer, backup, machine archive, recent upload, and activity metrics.
@@ -66,7 +66,7 @@ Current architecture:
 * Project Detail uses a grouped section selector instead of horizontal archive tabs, while preserving the same section state and file actions.
 * Project status updates reuse the existing project update API and log status-change details in ActivityLog.
 * Project General edits reuse `PUT /api/projects/[id]`, send only modified fields, and remain disabled for read-only roles.
-* Project Intelligence is computed in the Project Detail UI from already-loaded project and file records, plus the existing backup status endpoint; it does not run preview scanners or add database fields.
+* Project Intelligence and Archive Health are computed in the Project Detail UI from already-loaded project and file records, plus the existing backup status endpoint; they do not run preview scanners, background jobs, or add database fields.
 * Preview service reuses file metadata, storage path safety, authentication, and file permissions; binary previews stream inline through authenticated API routes.
 * Preview UI translates archive preview limitations into end-user guidance and avoids exposing parser/tooling details.
 * File intelligence is an additive module under `src/modules/file-intelligence`; it runs on demand from the existing preview service after authorization and safe path resolution.
