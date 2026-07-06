@@ -2,7 +2,7 @@ import { ActivityAction, type Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { requirePermission } from "../auth/permissions";
 import type { AuthenticatedUser } from "../auth/auth.types";
-import { createProjectFolders } from "../storage/storage.service";
+import { createProjectFolders, renameProjectFolder } from "../storage/storage.service";
 import { logActivity } from "../activity/activity.service";
 import { listProjects } from "./project.search";
 import { createProjectSchema, projectCodeParamSchema, projectIdSchema, updateProjectSchema } from "./project.validators";
@@ -129,41 +129,63 @@ export async function updateProject(user: AuthenticatedUser, projectId: number, 
     await assertSerialNumberAvailable(data.serialNumber, id);
   }
 
-  if (data.projectCode && data.projectCode !== existingProject.projectCode) {
+  const projectCodeChanged = Boolean(data.projectCode && data.projectCode !== existingProject.projectCode);
+  let storageFolderRenamed = false;
+
+  if (projectCodeChanged && data.projectCode) {
     await assertProjectCodeAvailable(data.projectCode, id);
-    await createProjectFolders(data.projectCode);
+    await renameProjectFolder(existingProject.projectCode, data.projectCode);
+    storageFolderRenamed = true;
   }
 
   const customerId = data.customer ? (await resolveCustomer(data.customer)).id : existingProject.customerId;
-  const project = await prisma.project.update({
-    where: {
-      id,
-    },
-    data: {
-      projectCode: data.projectCode,
-      serialNumber: data.serialNumber,
-      machineName: data.machineName,
-      machineType: nullableUpdateValue(data.machineType, rawInput, "machineType"),
-      customerId,
-      status: data.status,
-      description: data.description,
-      customerFactory: data.customerFactory,
-      lineName: data.lineName,
-      plcBrand: nullableUpdateValue(data.plcBrand, rawInput, "plcBrand"),
-      plcModel: data.plcModel,
-      plcSoftwareVersion: data.plcSoftwareVersion,
-      hmiBrand: nullableUpdateValue(data.hmiBrand, rawInput, "hmiBrand"),
-      hmiModel: data.hmiModel,
-      hmiSoftwareVersion: data.hmiSoftwareVersion,
-      robotBrand: nullableUpdateValue(data.robotBrand, rawInput, "robotBrand"),
-      robotModel: data.robotModel,
-      robotController: data.robotController,
-      robotSoftwareVersion: data.robotSoftwareVersion,
-      electricalDrawingNo: data.electricalDrawingNo,
-      updatedById: user.id,
-    },
-    include: PROJECT_DETAIL_INCLUDE,
-  });
+  let project: ProjectDetailPayload;
+
+  try {
+    project = await prisma.$transaction(async (tx) => {
+      const updatedProject = await tx.project.update({
+        where: {
+          id,
+        },
+        data: {
+          projectCode: data.projectCode,
+          serialNumber: data.serialNumber,
+          machineName: data.machineName,
+          machineType: nullableUpdateValue(data.machineType, rawInput, "machineType"),
+          customerId,
+          status: data.status,
+          description: data.description,
+          customerFactory: data.customerFactory,
+          lineName: data.lineName,
+          plcBrand: nullableUpdateValue(data.plcBrand, rawInput, "plcBrand"),
+          plcModel: data.plcModel,
+          plcSoftwareVersion: data.plcSoftwareVersion,
+          hmiBrand: nullableUpdateValue(data.hmiBrand, rawInput, "hmiBrand"),
+          hmiModel: data.hmiModel,
+          hmiSoftwareVersion: data.hmiSoftwareVersion,
+          robotBrand: nullableUpdateValue(data.robotBrand, rawInput, "robotBrand"),
+          robotModel: data.robotModel,
+          robotController: data.robotController,
+          robotSoftwareVersion: data.robotSoftwareVersion,
+          electricalDrawingNo: data.electricalDrawingNo,
+          updatedById: user.id,
+        },
+        include: PROJECT_DETAIL_INCLUDE,
+      });
+
+      if (projectCodeChanged && data.projectCode) {
+        await updateProjectStoragePaths(tx, id, existingProject.projectCode, data.projectCode);
+      }
+
+      return updatedProject;
+    });
+  } catch (error) {
+    if (storageFolderRenamed && data.projectCode) {
+      await renameProjectFolder(data.projectCode, existingProject.projectCode);
+    }
+
+    throw error;
+  }
 
   const changeLogs = buildProjectChangeLogs(existingProject, project, user);
 
@@ -175,6 +197,17 @@ export async function updateProject(user: AuthenticatedUser, projectId: number, 
       entityType: "Project",
       entityId: project.id,
       details,
+    });
+  }
+
+  if (projectCodeChanged && data.projectCode) {
+    await logActivity({
+      userId: user.id,
+      projectId: project.id,
+      action: ActivityAction.PROJECT_UPDATED,
+      entityType: "Project",
+      entityId: project.id,
+      details: `Project storage folder renamed successfully. ${existingProject.projectCode} -> ${data.projectCode}.`,
     });
   }
 
@@ -314,6 +347,73 @@ function buildProjectChangeLogs(
   return changes
     .filter(([, oldValue, newValue]) => normalizeLogValue(oldValue) !== normalizeLogValue(newValue))
     .map(([label, oldValue, newValue]) => `${label} changed: ${formatLogValue(oldValue)} -> ${formatLogValue(newValue)} by ${actor}.`);
+}
+
+async function updateProjectStoragePaths(
+  tx: Prisma.TransactionClient,
+  projectId: number,
+  oldProjectCode: string,
+  newProjectCode: string,
+): Promise<void> {
+  const files = await tx.projectFile.findMany({
+    where: {
+      projectId,
+    },
+    select: {
+      id: true,
+      storagePath: true,
+      versions: {
+        select: {
+          id: true,
+          storagePath: true,
+        },
+      },
+    },
+  });
+
+  for (const file of files) {
+    const nextFileStoragePath = renameProjectCodeInStoragePath(file.storagePath, oldProjectCode, newProjectCode);
+
+    if (nextFileStoragePath !== file.storagePath) {
+      await tx.projectFile.update({
+        where: {
+          id: file.id,
+        },
+        data: {
+          storagePath: nextFileStoragePath,
+        },
+      });
+    }
+
+    for (const version of file.versions) {
+      const nextVersionStoragePath = renameProjectCodeInStoragePath(version.storagePath, oldProjectCode, newProjectCode);
+
+      if (nextVersionStoragePath !== version.storagePath) {
+        await tx.fileVersion.update({
+          where: {
+            id: version.id,
+          },
+          data: {
+            storagePath: nextVersionStoragePath,
+          },
+        });
+      }
+    }
+  }
+}
+
+function renameProjectCodeInStoragePath(
+  storagePath: string,
+  oldProjectCode: string,
+  newProjectCode: string,
+): string {
+  const oldPrefix = `projects/${oldProjectCode}/`;
+
+  if (!storagePath.startsWith(oldPrefix)) {
+    return storagePath;
+  }
+
+  return `projects/${newProjectCode}/${storagePath.slice(oldPrefix.length)}`;
 }
 
 function normalizeLogValue(value: string | null | undefined): string {

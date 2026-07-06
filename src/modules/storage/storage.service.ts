@@ -111,6 +111,27 @@ export async function createProjectFolders(projectCode: string): Promise<Project
   };
 }
 
+export async function renameProjectFolder(
+  oldProjectCode: string,
+  newProjectCode: string,
+): Promise<{ source: ResolvedStoragePath; target: ResolvedStoragePath }> {
+  const safeOldProjectCode = validateProjectCode(oldProjectCode);
+  const safeNewProjectCode = validateProjectCode(newProjectCode);
+  const source = buildStoragePath("projects", safeOldProjectCode);
+  const target = buildStoragePath("projects", safeNewProjectCode);
+
+  await assertDirectoryExists(source.absolutePath, "Source project storage folder was not found.");
+  await assertDirectoryDoesNotExist(target.absolutePath, "Target project storage folder already exists.");
+  await mkdir(path.dirname(target.absolutePath), { recursive: true });
+  await rename(source.absolutePath, target.absolutePath);
+  await createProjectFolders(safeNewProjectCode);
+
+  return {
+    source,
+    target,
+  };
+}
+
 export async function calculateStoredFileSha256(relativeStoragePath: string): Promise<string> {
   const { root } = getStorageConfig();
   const resolved = buildPathFromRelativeStoragePath(root, relativeStoragePath);
@@ -164,4 +185,34 @@ async function assertFileExists(filePath: string): Promise<void> {
   if (!fileStat.isFile()) {
     throw new Error("Storage path is not a file.");
   }
+}
+
+async function assertDirectoryExists(directoryPath: string, message: string): Promise<void> {
+  try {
+    const directoryStat = await stat(directoryPath);
+
+    if (!directoryStat.isDirectory()) {
+      throw new Error(message);
+    }
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      throw new Error(message);
+    }
+
+    throw error;
+  }
+}
+
+async function assertDirectoryDoesNotExist(directoryPath: string, message: string): Promise<void> {
+  try {
+    await stat(directoryPath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return;
+    }
+
+    throw error;
+  }
+
+  throw new Error(message);
 }

@@ -19,6 +19,25 @@ export interface BackupRunSummary {
   errors: string[];
 }
 
+export interface BackupProgressDto {
+  status: BackupStatus;
+  overallProgress: number;
+  currentProject?: string | null;
+  currentCategory?: string | null;
+  currentFile?: string | null;
+  filesProcessed: number;
+  totalFiles: number;
+  projectsProcessed: number;
+  totalProjects: number;
+  bytesProcessed: bigint;
+  totalBytes: bigint;
+  elapsedMs: number;
+  estimatedRemainingMs?: number | null;
+  transferSpeedBytesPerSecond?: number | null;
+  startedAt?: Date | null;
+  updatedAt?: Date | null;
+}
+
 export interface BackupHistoryItem {
   id: number;
   startedAt: Date;

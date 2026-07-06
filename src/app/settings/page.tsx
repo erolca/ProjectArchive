@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { getApi, postApi, putApi } from "../../lib/api-client";
 import { formatBytes, formatDateTime } from "../../lib/format";
@@ -56,6 +57,25 @@ interface BackupRunSummary {
   finishTime: string;
   destination: string;
   errors: string[];
+}
+
+interface BackupProgress {
+  status: string;
+  overallProgress: number;
+  currentProject?: string | null;
+  currentCategory?: string | null;
+  currentFile?: string | null;
+  filesProcessed: number;
+  totalFiles: number;
+  projectsProcessed: number;
+  totalProjects: number;
+  bytesProcessed: string;
+  totalBytes: string;
+  elapsedMs: number;
+  estimatedRemainingMs?: number | null;
+  transferSpeedBytesPerSecond?: number | null;
+  startedAt?: string | null;
+  updatedAt?: string | null;
 }
 
 interface BackupHistoryItem {
@@ -201,6 +221,7 @@ export default function SettingsPage() {
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null);
   const [backupHistory, setBackupHistory] = useState<BackupHistoryItem[]>([]);
   const [verificationResult, setVerificationResult] = useState<BackupVerificationResult | null>(null);
+  const [backupProgress, setBackupProgress] = useState<BackupProgress | null>(null);
   const [showBackupPathFallback, setShowBackupPathFallback] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
   const [restoreStep, setRestoreStep] = useState(1);
@@ -289,11 +310,21 @@ export default function SettingsPage() {
     setBackupHistory(result);
   }
 
+  async function loadBackupProgress() {
+    const result = await getApi<BackupProgress>("/api/backup/progress");
+    setBackupProgress(result);
+  }
+
   async function runBackupNow() {
     setBackupBusy(true);
     setStatus("Backup running. Keep this page open until the operation finishes.");
+    setBackupProgress(null);
+    const progressInterval = window.setInterval(() => {
+      void loadBackupProgress().catch(() => undefined);
+    }, 750);
 
     try {
+      await loadBackupProgress().catch(() => undefined);
       const result = await postApi<BackupRunSummary>("/api/backup/run", {});
       setStatus(`Backup completed. Copied ${result.filesCopied}, skipped ${result.filesSkipped}, failed ${result.filesFailed}.`);
       await loadBackupStatus();
@@ -302,6 +333,8 @@ export default function SettingsPage() {
       setStatus(error instanceof Error ? error.message : "Backup failed.");
       await loadBackupStatus().catch(() => undefined);
     } finally {
+      window.clearInterval(progressInterval);
+      await loadBackupProgress().catch(() => undefined);
       setBackupBusy(false);
     }
   }
@@ -456,6 +489,12 @@ export default function SettingsPage() {
           <p className="mt-1 text-sm text-[#9fb0bf]">Operational settings for archive ownership, storage, and backups.</p>
         </div>
         <div className="flex gap-2">
+          <Link
+            href="/settings/integrity"
+            className="inline-flex items-center rounded-md border border-[#263545] px-4 py-2 text-sm text-[#d9e5ef]"
+          >
+            System Integrity
+          </Link>
           <button
             type="button"
             onClick={() => {
@@ -578,6 +617,9 @@ export default function SettingsPage() {
             <div className={`rounded-md border p-3 text-sm ${backupStatus.validation.valid ? "border-[#14532d] bg-[#07130d] text-[#86efac]" : "border-[#7f1d1d] bg-[#1f0d0d] text-[#fca5a5]"}`}>
               {backupStatus.validation.message}
             </div>
+          ) : null}
+          {backupProgress && backupProgress.status !== "IDLE" ? (
+            <BackupProgressPanel progress={backupProgress} />
           ) : null}
         </SettingsPanel>
 
@@ -932,6 +974,41 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
+function BackupProgressPanel({ progress }: { progress: BackupProgress }) {
+  return (
+    <div className="rounded-md border border-[#263545] bg-[#0b0f14] p-4">
+      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+        <div>
+          <div className="text-xs font-semibold uppercase text-[#64748b]">Backup Progress</div>
+          <div className="mt-1 flex items-center gap-2">
+            <StatusPill status={progress.status} />
+            <span className="text-sm font-semibold text-white">{progress.overallProgress}%</span>
+          </div>
+        </div>
+        <div className="text-xs text-[#9fb0bf]">
+          {progress.updatedAt ? `Updated ${formatDateTime(progress.updatedAt)}` : "Waiting for progress"}
+        </div>
+      </div>
+
+      <div className="mt-4 h-3 overflow-hidden rounded-full bg-[#263545]">
+        <div className="h-full bg-[#2f80ed]" style={{ width: `${Math.max(0, Math.min(100, progress.overallProgress))}%` }} />
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricTile label="Current Project" value={progress.currentProject || "-"} />
+        <MetricTile label="Current Category" value={progress.currentCategory || "-"} />
+        <MetricTile label="Current File" value={progress.currentFile || "-"} wide />
+        <MetricTile label="Files" value={`${progress.filesProcessed} / ${progress.totalFiles}`} />
+        <MetricTile label="Projects" value={`${progress.projectsProcessed} / ${progress.totalProjects}`} />
+        <MetricTile label="Elapsed" value={formatDuration(progress.elapsedMs)} />
+        <MetricTile label="Remaining" value={formatDuration(progress.estimatedRemainingMs)} />
+        <MetricTile label="Transfer Speed" value={formatTransferSpeed(progress.transferSpeedBytesPerSecond)} />
+        <MetricTile label="Transferred" value={`${formatBytes(progress.bytesProcessed)} / ${formatBytes(progress.totalBytes)}`} wide />
+      </div>
+    </div>
+  );
+}
+
 function ActionButton({
   children,
   onClick,
@@ -1210,4 +1287,12 @@ function formatDuration(value?: number | null): string {
   const remainingSeconds = seconds % 60;
 
   return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${seconds}s`;
+}
+
+function formatTransferSpeed(value?: number | null): string {
+  if (!value) {
+    return "Not available";
+  }
+
+  return `${formatBytes(value)}/s`;
 }

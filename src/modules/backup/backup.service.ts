@@ -10,6 +10,7 @@ import type { AuthenticatedUser } from "../auth/auth.types";
 import { hasPermission, requirePermission } from "../auth/permissions";
 import type {
   BackupHistoryItem,
+  BackupProgressDto,
   BackupRunSummary,
   BackupStatus,
   BackupStatusDto,
@@ -20,6 +21,7 @@ import type {
 const SETTINGS_ID = 1;
 const PROJECTS_FOLDER = "projects";
 let backupRunning = false;
+let currentBackupProgress: BackupProgressDto | null = null;
 
 export async function getBackupStatus(
   user: AuthenticatedUser,
@@ -68,6 +70,44 @@ export async function validateBackupLocation(user: AuthenticatedUser): Promise<B
       message: error instanceof Error ? error.message : "Backup location is invalid.",
     };
   }
+}
+
+export function getBackupProgress(user: AuthenticatedUser): BackupProgressDto {
+  requirePermission(user, "backups:manage");
+
+  if (currentBackupProgress) {
+    const elapsedMs = calculateProgressElapsed(currentBackupProgress);
+    const progress = {
+      ...currentBackupProgress,
+      elapsedMs,
+    };
+
+    return {
+      ...progress,
+      estimatedRemainingMs: calculateEstimatedRemaining(progress),
+      transferSpeedBytesPerSecond: calculateTransferSpeed(progress),
+      updatedAt: new Date(),
+    };
+  }
+
+  return {
+    status: "IDLE",
+    overallProgress: 0,
+    currentProject: null,
+    currentCategory: null,
+    currentFile: null,
+    filesProcessed: 0,
+    totalFiles: 0,
+    projectsProcessed: 0,
+    totalProjects: 0,
+    bytesProcessed: BigInt(0),
+    totalBytes: BigInt(0),
+    elapsedMs: 0,
+    estimatedRemainingMs: null,
+    transferSpeedBytesPerSecond: null,
+    startedAt: null,
+    updatedAt: new Date(),
+  };
 }
 
 export async function listBackupHistory(user: AuthenticatedUser): Promise<BackupHistoryItem[]> {
@@ -135,9 +175,18 @@ export async function runProjectStorageBackup(user: AuthenticatedUser): Promise<
     details: `Project storage backup started. Destination: ${destinationRoot}.`,
   });
 
+  currentBackupProgress = createInitialBackupProgress(startedAt);
+
   try {
     await assertSourceProjectsFolder(sourceRoot);
     await mkdir(destinationProjectsRoot, { recursive: true });
+
+    const sourceInventory = await scanBackupSource(sourceRoot);
+    updateBackupProgress({
+      totalFiles: sourceInventory.totalFiles,
+      totalProjects: sourceInventory.totalProjects,
+      totalBytes: sourceInventory.totalBytes,
+    });
 
     const checksumByRelativePath = await getChecksumByRelativePath();
     const summary = await copyProjectsIncrementally({
@@ -147,6 +196,7 @@ export async function runProjectStorageBackup(user: AuthenticatedUser): Promise<
       checksumByRelativePath,
       startedAt,
       destination: destinationRoot,
+      processedProjects: new Set<string>(),
     });
 
     await prisma.systemSettings.update({
@@ -184,6 +234,17 @@ export async function runProjectStorageBackup(user: AuthenticatedUser): Promise<
       entityType: "SystemSettings",
       entityId: SETTINGS_ID,
       details: buildActivityDetails(summary),
+    });
+
+    updateBackupProgress({
+      status: summary.filesFailed > 0 ? "COMPLETED_WITH_ERRORS" : "COMPLETED",
+      overallProgress: 100,
+      filesProcessed: summary.totalFiles,
+      projectsProcessed: currentBackupProgress?.totalProjects || 0,
+      bytesProcessed: summary.totalSize,
+      currentProject: null,
+      currentCategory: null,
+      currentFile: null,
     });
 
     return summary;
@@ -236,6 +297,13 @@ export async function runProjectStorageBackup(user: AuthenticatedUser): Promise<
       entityType: "SystemSettings",
       entityId: SETTINGS_ID,
       details: `Project storage backup failed after ${elapsedMs} ms. Destination: ${destinationRoot}. Error: ${message}`,
+    });
+
+    updateBackupProgress({
+      status: "FAILED",
+      currentProject: null,
+      currentCategory: null,
+      currentFile: null,
     });
 
     throw error;
@@ -317,6 +385,7 @@ async function copyProjectsIncrementally(input: {
   checksumByRelativePath: Map<string, string>;
   startedAt: Date;
   destination: string;
+  processedProjects: Set<string>;
 }): Promise<BackupRunSummary> {
   const summary = {
     filesCopied: 0,
@@ -327,7 +396,15 @@ async function copyProjectsIncrementally(input: {
     errors: [] as string[],
   };
 
-  await walkAndCopy(input.sourceRoot, input.sourceRoot, input.destinationRoot, input.storageRoot, input.checksumByRelativePath, summary);
+  await walkAndCopy(
+    input.sourceRoot,
+    input.sourceRoot,
+    input.destinationRoot,
+    input.storageRoot,
+    input.checksumByRelativePath,
+    summary,
+    input.processedProjects,
+  );
 
   const finishTime = new Date();
 
@@ -481,6 +558,7 @@ async function walkAndCopy(
     totalSize: bigint;
     errors: string[];
   },
+  processedProjects: Set<string>,
 ): Promise<void> {
   const entries = await readdir(current, { withFileTypes: true });
 
@@ -491,7 +569,7 @@ async function walkAndCopy(
 
     if (entry.isDirectory()) {
       await mkdir(destinationPath, { recursive: true });
-      await walkAndCopy(root, sourcePath, destinationRoot, storageRoot, checksumByRelativePath, summary);
+      await walkAndCopy(root, sourcePath, destinationRoot, storageRoot, checksumByRelativePath, summary, processedProjects);
       continue;
     }
 
@@ -500,6 +578,13 @@ async function walkAndCopy(
     }
 
     summary.totalFiles += 1;
+    const currentLocation = parseBackupRelativePath(relativeFromProjects);
+
+    updateBackupProgress({
+      currentProject: currentLocation.project,
+      currentCategory: currentLocation.category,
+      currentFile: currentLocation.file,
+    });
 
     try {
       const sourceStat = await stat(sourcePath);
@@ -507,6 +592,7 @@ async function walkAndCopy(
 
       if (await shouldSkipFile(sourcePath, destinationPath, storageRoot, checksumByRelativePath, sourceStat.size, sourceStat.mtime)) {
         summary.filesSkipped += 1;
+        markBackupFileProcessed(sourceStat.size, currentLocation.project, processedProjects);
         continue;
       }
 
@@ -514,11 +600,164 @@ async function walkAndCopy(
       await copyFile(sourcePath, destinationPath);
       await utimes(destinationPath, sourceStat.atime, sourceStat.mtime);
       summary.filesCopied += 1;
+      markBackupFileProcessed(sourceStat.size, currentLocation.project, processedProjects);
     } catch (error) {
       summary.filesFailed += 1;
       summary.errors.push(`${relativeFromProjects}: ${error instanceof Error ? error.message : "Copy failed."}`);
+      markBackupFileProcessed(0, currentLocation.project, processedProjects);
     }
   }
+}
+
+async function scanBackupSource(sourceRoot: string): Promise<{ totalFiles: number; totalProjects: number; totalBytes: bigint }> {
+  const summary = {
+    totalFiles: 0,
+    totalBytes: BigInt(0),
+    projects: new Set<string>(),
+  };
+
+  await walkBackupSourceInventory(sourceRoot, sourceRoot, summary);
+
+  return {
+    totalFiles: summary.totalFiles,
+    totalProjects: summary.projects.size,
+    totalBytes: summary.totalBytes,
+  };
+}
+
+async function walkBackupSourceInventory(
+  root: string,
+  current: string,
+  summary: { totalFiles: number; totalBytes: bigint; projects: Set<string> },
+): Promise<void> {
+  const entries = await readdir(current, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const sourcePath = path.join(current, entry.name);
+
+    if (entry.isDirectory()) {
+      await walkBackupSourceInventory(root, sourcePath, summary);
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const relativeFromProjects = path.relative(root, sourcePath);
+    const location = parseBackupRelativePath(relativeFromProjects);
+    const sourceStat = await stat(sourcePath);
+
+    summary.totalFiles += 1;
+    summary.totalBytes += BigInt(sourceStat.size);
+
+    if (location.project) {
+      summary.projects.add(location.project);
+    }
+  }
+}
+
+function createInitialBackupProgress(startedAt: Date): BackupProgressDto {
+  return {
+    status: "RUNNING",
+    overallProgress: 0,
+    currentProject: null,
+    currentCategory: null,
+    currentFile: null,
+    filesProcessed: 0,
+    totalFiles: 0,
+    projectsProcessed: 0,
+    totalProjects: 0,
+    bytesProcessed: BigInt(0),
+    totalBytes: BigInt(0),
+    elapsedMs: 0,
+    estimatedRemainingMs: null,
+    transferSpeedBytesPerSecond: null,
+    startedAt,
+    updatedAt: startedAt,
+  };
+}
+
+function updateBackupProgress(update: Partial<BackupProgressDto>): void {
+  if (!currentBackupProgress) {
+    return;
+  }
+
+  const elapsedMs = calculateProgressElapsed(currentBackupProgress);
+  const nextProgress = {
+    ...currentBackupProgress,
+    ...update,
+    elapsedMs,
+    updatedAt: new Date(),
+  };
+
+  currentBackupProgress = {
+    ...nextProgress,
+    overallProgress: calculateOverallProgress(nextProgress.filesProcessed, nextProgress.totalFiles),
+    estimatedRemainingMs: calculateEstimatedRemaining(nextProgress),
+    transferSpeedBytesPerSecond: calculateTransferSpeed(nextProgress),
+  };
+}
+
+function markBackupFileProcessed(sourceSize: number, currentProject: string | null, processedProjects: Set<string>): void {
+  if (!currentBackupProgress) {
+    return;
+  }
+
+  if (currentProject) {
+    processedProjects.add(currentProject);
+  }
+
+  updateBackupProgress({
+    filesProcessed: currentBackupProgress.filesProcessed + 1,
+    projectsProcessed: Math.min(processedProjects.size, currentBackupProgress.totalProjects),
+    bytesProcessed: currentBackupProgress.bytesProcessed + BigInt(sourceSize),
+  });
+}
+
+function parseBackupRelativePath(relativePath: string): { project: string | null; category: string | null; file: string } {
+  const segments = normalizeRelative(relativePath).split("/").filter(Boolean);
+
+  return {
+    project: segments[0] || null,
+    category: segments.length > 2 ? segments[1] : null,
+    file: segments.at(-1) || relativePath,
+  };
+}
+
+function calculateOverallProgress(filesProcessed: number, totalFiles: number): number {
+  if (totalFiles <= 0) {
+    return 0;
+  }
+
+  return Math.min(100, Math.round((filesProcessed / totalFiles) * 100));
+}
+
+function calculateProgressElapsed(progress: Pick<BackupProgressDto, "startedAt">): number {
+  if (!progress.startedAt) {
+    return 0;
+  }
+
+  return Date.now() - new Date(progress.startedAt).getTime();
+}
+
+function calculateEstimatedRemaining(progress: Pick<BackupProgressDto, "filesProcessed" | "totalFiles" | "elapsedMs">): number | null {
+  if (progress.filesProcessed <= 0 || progress.totalFiles <= 0) {
+    return null;
+  }
+
+  const remainingFiles = Math.max(0, progress.totalFiles - progress.filesProcessed);
+  const averageMsPerFile = progress.elapsedMs / progress.filesProcessed;
+
+  return Math.round(remainingFiles * averageMsPerFile);
+}
+
+function calculateTransferSpeed(progress: Pick<BackupProgressDto, "bytesProcessed" | "elapsedMs">): number | null {
+  if (progress.elapsedMs <= 0) {
+    return null;
+  }
+
+  return Math.round(Number(progress.bytesProcessed) / (progress.elapsedMs / 1000));
 }
 
 async function shouldSkipFile(
