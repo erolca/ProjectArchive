@@ -74,7 +74,7 @@ const sectionGroups = [
   },
   {
     label: "System",
-    sections: ["Versions", "Activity"],
+    sections: ["Versions", "Timeline", "Activity"],
   },
 ];
 const projectStatusOptions = ["DESIGN", "SOFTWARE", "COMMISSIONING", "COMPLETED", "SERVICE", "ARCHIVED"];
@@ -196,6 +196,32 @@ interface ArchiveHealthAnalysis {
   suggestions: string[];
 }
 
+interface ActivityRow {
+  id: number;
+  action: string;
+  details?: string | null;
+  entityType: string;
+  entityId?: number | null;
+  createdAt: string;
+  user?: {
+    id: number;
+    username: string;
+    email: string;
+  } | null;
+  project?: {
+    id: number;
+    projectCode: string;
+    machineName: string;
+  } | null;
+}
+
+interface ActivityResponse {
+  data: ActivityRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 interface ArchiveTreeItem {
   name: string;
   path: string;
@@ -293,6 +319,8 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
   const [previewStatus, setPreviewStatus] = useState<string | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [backupStatus, setBackupStatus] = useState<BackupStatusSummary | null>(null);
+  const [timeline, setTimeline] = useState<ActivityRow[]>([]);
+  const [timelineStatus, setTimelineStatus] = useState("Loading timeline");
 
   function refreshFiles() {
     getApi<ProjectFileRow[]>(`/api/projects/${projectId}/files`)
@@ -328,6 +356,24 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
         setBackupStatus(null);
       });
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams({
+      projectId,
+      page: "1",
+      pageSize: "100",
+    });
+
+    getApi<ActivityResponse>(`/api/activity?${params.toString()}`)
+      .then((result) => {
+        setTimeline(result.data);
+        setTimelineStatus(result.total === 0 ? "No project activity has been recorded yet." : `${result.total} project activity records`);
+      })
+      .catch((error) => {
+        setTimeline([]);
+        setTimelineStatus(getUserErrorMessage(error, "Could not load project timeline."));
+      });
+  }, [projectId]);
 
   useEffect(() => {
     return () => {
@@ -506,6 +552,8 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
           />
         ) : activeTab === "Versions" ? (
           <VersionHistory files={files} filesStatus={filesStatus} />
+        ) : activeTab === "Timeline" ? (
+          <EngineeringTimeline activities={timeline} status={timelineStatus} />
         ) : (
           <div className="mt-4 grid min-h-48 place-items-center border border-dashed border-[#263545] text-sm text-[#9fb0bf]">
             {activeTab} content will be connected in a later UI phase.
@@ -1047,6 +1095,62 @@ function VersionHistory({ files, filesStatus }: { files: ProjectFileRow[]; files
         </tbody>
       </table>
     </div>
+  );
+}
+
+function EngineeringTimeline({ activities, status }: { activities: ActivityRow[]; status: string }) {
+  const groupedActivities = groupActivitiesByDate(activities);
+
+  return (
+    <div className="mt-4 rounded-md border border-[#263545] bg-[#0f151d]">
+      <div className="flex flex-col gap-1 border-b border-[#263545] px-4 py-3">
+        <h4 className="text-sm font-semibold text-white">Engineering Timeline</h4>
+        <p className="text-xs text-[#9fb0bf]">Project lifecycle events from the existing activity log.</p>
+      </div>
+      {activities.length === 0 ? (
+        <div className="p-6 text-sm text-[#9fb0bf]">{status}</div>
+      ) : (
+        <div className="space-y-5 p-4">
+          {groupedActivities.map((group) => (
+            <section key={group.dateLabel}>
+              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#64748b]">{group.dateLabel}</div>
+              <div className="relative space-y-3 border-l border-[#263545] pl-4">
+                {group.items.map((activity) => (
+                  <TimelineEvent key={activity.id} activity={activity} />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TimelineEvent({ activity }: { activity: ActivityRow }) {
+  const changeText = extractChangeText(activity.details);
+
+  return (
+    <article className="relative rounded-md border border-[#263545] bg-[#111820] p-3">
+      <span className={`absolute -left-[22px] top-4 h-3 w-3 rounded-full border border-[#111820] ${getTimelineDotClass(activity.action)}`} />
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded border px-2 py-1 text-xs font-semibold ${getTimelineBadgeClass(activity.action)}`}>
+              {formatActionLabel(activity.action)}
+            </span>
+            <span className="text-xs text-[#9fb0bf]">{formatTimelineTime(activity.createdAt)}</span>
+            <span className="text-xs text-[#9fb0bf]">User: {activity.user?.username || "System"}</span>
+          </div>
+          <div className="mt-2 break-words text-sm text-white">{activity.details || `${activity.entityType} event`}</div>
+          {changeText ? <div className="mt-2 rounded border border-[#263545] bg-[#0b0f14] px-2 py-1 text-xs text-[#d9e5ef]">{changeText}</div> : null}
+        </div>
+        <div className="shrink-0 rounded border border-[#263545] bg-[#0b0f14] px-2 py-1 text-xs text-[#9fb0bf]">
+          {activity.entityType}
+          {activity.entityId ? ` #${activity.entityId}` : ""}
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -2076,6 +2180,97 @@ function formatRelativeDate(value: string): string {
   }
 
   return formatDate(value);
+}
+
+function groupActivitiesByDate(activities: ActivityRow[]): Array<{ dateLabel: string; items: ActivityRow[] }> {
+  const groups = new Map<string, ActivityRow[]>();
+
+  for (const activity of activities) {
+    const label = formatDate(activity.createdAt);
+    groups.set(label, [...(groups.get(label) || []), activity]);
+  }
+
+  return Array.from(groups.entries()).map(([dateLabel, items]) => ({
+    dateLabel,
+    items,
+  }));
+}
+
+function formatTimelineTime(value: string): string {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "--:--";
+  }
+
+  return date.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatActionLabel(action: string): string {
+  return action.replaceAll("_", " ");
+}
+
+function extractChangeText(details?: string | null): string | null {
+  if (!details) {
+    return null;
+  }
+
+  const colonMatch = details.match(/^([^:]+ changed):\s*(.+?)\s+by\s+(.+)\.?$/i);
+
+  if (colonMatch) {
+    return `${colonMatch[1]}: ${colonMatch[2]}`;
+  }
+
+  const fromToMatch = details.match(/^(.+?) changed from (.+?) to (.+?) by .+\.?$/i);
+
+  if (fromToMatch) {
+    return `${fromToMatch[1]}: ${fromToMatch[2]} -> ${fromToMatch[3]}`;
+  }
+
+  return null;
+}
+
+function getTimelineBadgeClass(action: string): string {
+  if (action.includes("FAILED") || action.includes("DENIED")) {
+    return "border-[#ef4444] bg-[#2a1111] text-[#fca5a5]";
+  }
+
+  if (action.includes("BACKUP") || action.includes("RESTORE")) {
+    return "border-[#f59e0b] bg-[#241908] text-[#f8d28b]";
+  }
+
+  if (action.includes("FILE") || action.includes("VERSION")) {
+    return "border-[#2f80ed] bg-[#10243b] text-[#93c5fd]";
+  }
+
+  if (action.includes("PROJECT")) {
+    return "border-[#22c55e] bg-[#0d2618] text-[#86efac]";
+  }
+
+  return "border-[#263545] bg-[#0b0f14] text-[#d9e5ef]";
+}
+
+function getTimelineDotClass(action: string): string {
+  if (action.includes("FAILED") || action.includes("DENIED")) {
+    return "bg-[#ef4444]";
+  }
+
+  if (action.includes("BACKUP") || action.includes("RESTORE")) {
+    return "bg-[#f59e0b]";
+  }
+
+  if (action.includes("FILE") || action.includes("VERSION")) {
+    return "bg-[#2f80ed]";
+  }
+
+  if (action.includes("PROJECT")) {
+    return "bg-[#22c55e]";
+  }
+
+  return "bg-[#64748b]";
 }
 
 function formatEngineeringMetadata(file: Pick<ProjectFileRow, "manufacturer" | "softwareName" | "softwareVersion" | "platform">): string {
