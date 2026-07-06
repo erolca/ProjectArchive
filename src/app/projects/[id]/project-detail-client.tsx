@@ -446,6 +446,12 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
     }
   }
 
+  function openUploadDialog() {
+    setPrepareResult(null);
+    setUploadStatus(null);
+    setIsUploadOpen(true);
+  }
+
   if (!project) {
     return <div className="rounded-md border border-[#263545] bg-[#111820] p-4 text-sm text-[#9fb0bf]">{status}</div>;
   }
@@ -505,6 +511,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
           generalForm ? (
             <div className="space-y-4">
               <ProjectIntelligenceCard project={project} files={files} backupStatus={backupStatus} />
+              <QuickUploadSection onUpload={openUploadDialog} />
               <ProjectGeneralEditor
                 form={generalForm}
                 canEdit={Boolean(canEditProject)}
@@ -544,11 +551,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
                 });
             }}
             onPreview={openPreview}
-            onUpload={() => {
-              setPrepareResult(null);
-              setUploadStatus(null);
-              setIsUploadOpen(true);
-            }}
+            onUpload={openUploadDialog}
           />
         ) : activeTab === "Versions" ? (
           <VersionHistory files={files} filesStatus={filesStatus} />
@@ -780,6 +783,24 @@ function HealthChecklistRow({ item }: { item: ArchiveHealthItem }) {
         {item.suggestion ? <div className="mt-1 break-words text-xs text-[#9fb0bf]">{item.suggestion}</div> : null}
       </div>
     </div>
+  );
+}
+
+function QuickUploadSection({ onUpload }: { onUpload: () => void }) {
+  return (
+    <section className="rounded-md border border-[#263545] bg-[#0f151d] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-white">Quick Upload</h4>
+          <p className="mt-1 text-xs text-[#9fb0bf]">
+            Add PLC, HMI, robot, engineering, documentation, or backup files using the existing upload workflow.
+          </p>
+        </div>
+        <button onClick={onUpload} className="h-10 rounded-md bg-[#2f80ed] px-4 text-sm font-semibold text-white">
+          Upload File
+        </button>
+      </div>
+    </section>
   );
 }
 
