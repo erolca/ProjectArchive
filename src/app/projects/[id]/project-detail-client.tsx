@@ -158,6 +158,29 @@ interface ProjectFileRow {
   }>;
 }
 
+interface BackupStatusSummary {
+  destination?: string | null;
+  status: string;
+  lastBackup?: {
+    finishedAt?: string | null;
+    status?: string | null;
+    size?: string | null;
+    result?: unknown;
+    destination?: string | null;
+  };
+}
+
+interface CategoryIntelligenceSummary {
+  label: string;
+  category: string;
+  manufacturer: string;
+  softwareName: string;
+  softwareVersion: string;
+  latestArchiveVersion: string;
+  fileCount: number;
+  lastUploadDate: string | null;
+}
+
 interface ArchiveTreeItem {
   name: string;
   path: string;
@@ -254,6 +277,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
   const [preview, setPreview] = useState<FilePreviewResult | null>(null);
   const [previewStatus, setPreviewStatus] = useState<string | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [backupStatus, setBackupStatus] = useState<BackupStatusSummary | null>(null);
 
   function refreshFiles() {
     getApi<ProjectFileRow[]>(`/api/projects/${projectId}/files`)
@@ -281,6 +305,14 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
   useEffect(() => {
     refreshFiles();
   }, [projectId]);
+
+  useEffect(() => {
+    getApi<BackupStatusSummary>("/api/backup/status")
+      .then(setBackupStatus)
+      .catch(() => {
+        setBackupStatus(null);
+      });
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -410,18 +442,21 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
         </div>
         {activeTab === "General" ? (
           generalForm ? (
-            <ProjectGeneralEditor
-              form={generalForm}
-              canEdit={Boolean(canEditProject)}
-              isSaving={isSavingGeneral}
-              hasChanges={hasGeneralChanges}
-              message={generalSaveMessage}
-              onChange={(field, value) => {
-                setGeneralForm((current) => (current ? { ...current, [field]: value } : current));
-                setGeneralSaveMessage(null);
-              }}
-              onSave={saveProjectGeneralChanges}
-            />
+            <div className="space-y-4">
+              <ProjectIntelligenceCard project={project} files={files} backupStatus={backupStatus} />
+              <ProjectGeneralEditor
+                form={generalForm}
+                canEdit={Boolean(canEditProject)}
+                isSaving={isSavingGeneral}
+                hasChanges={hasGeneralChanges}
+                message={generalSaveMessage}
+                onChange={(field, value) => {
+                  setGeneralForm((current) => (current ? { ...current, [field]: value } : current));
+                  setGeneralSaveMessage(null);
+                }}
+                onSave={saveProjectGeneralChanges}
+              />
+            </div>
           ) : null
         ) : fileTabs.has(activeTab) ? (
           <FileTabContent
@@ -586,6 +621,70 @@ function getSectionGroupLabel(section: string): string {
   const group = sectionGroups.find((item) => item.sections.includes(section));
 
   return group ? group.label : "Project Archive";
+}
+
+function ProjectIntelligenceCard({
+  project,
+  files,
+  backupStatus,
+}: {
+  project: ProjectDetail;
+  files: ProjectFileRow[];
+  backupStatus: BackupStatusSummary | null;
+}) {
+  const summaries = buildProjectIntelligenceSummaries(files);
+  const summaryByCategory = Object.fromEntries(summaries.map((summary) => [summary.category, summary]));
+  const health = calculateArchiveHealth(summaries, backupStatus);
+
+  return (
+    <section className="rounded-md border border-[#263545] bg-[#0f151d] p-5">
+      <div className="border-b border-[#263545] pb-4">
+        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#64748b]">Project Intelligence</div>
+        <div className="mt-3 space-y-1">
+          <h4 className="break-words text-xl font-semibold text-white">{project.projectCode}</h4>
+          <div className="break-words text-sm font-semibold text-[#d9e5ef]">{project.customer.customerName}</div>
+          <div className="break-words text-sm text-[#9fb0bf]">{project.machineName}</div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 border-b border-[#263545] pb-4 text-sm md:grid-cols-2">
+        <IntelligenceLine label="Status" value={project.status} highlight />
+        <IntelligenceLine label="Machine Type" value={project.machineType || "Not specified"} />
+        <IntelligenceLine label="PLC" value={formatSystemSummary(summaryByCategory.PLC, project.plcBrand)} />
+        <IntelligenceLine label="HMI" value={formatSystemSummary(summaryByCategory.HMI, project.hmiBrand)} />
+        <IntelligenceLine label="Robot" value={formatSystemSummary(summaryByCategory.ROBOT, [project.robotBrand, project.robotModel || project.robotController].filter(Boolean).join(" "))} />
+        <IntelligenceLine label="Vision" value={formatSystemSummary(summaryByCategory.VISION)} />
+        <IntelligenceLine label="Electrical" value={formatSystemSummary(summaryByCategory.ELECTRICAL)} />
+        <IntelligenceLine label="Mechanical" value={formatSystemSummary(summaryByCategory.MECHANICAL)} />
+      </div>
+
+      <div className="mt-4 border-b border-[#263545] pb-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-white">Archive Health</div>
+          <div className="text-lg font-semibold text-[#86efac]">{health}%</div>
+        </div>
+        <div className="mt-3 h-3 overflow-hidden rounded-full bg-[#263545]">
+          <div className="h-full rounded-full bg-[#22c55e]" style={{ width: `${health}%` }} />
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+        <IntelligenceLine label="Latest Backup" value={formatLatestBackupStatus(backupStatus)} highlight />
+        <IntelligenceLine label="Last Backup Date" value={formatOptionalDateTime(backupStatus?.lastBackup?.finishedAt)} />
+        <IntelligenceLine label="Last Update" value={formatRelativeDate(project.updatedAt)} />
+        <IntelligenceLine label="Last Uploaded File" value={getLastUploadedFile(files)?.originalFileName || "No files uploaded"} />
+      </div>
+    </section>
+  );
+}
+
+function IntelligenceLine({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className="grid min-w-0 grid-cols-[120px_minmax(0,1fr)] gap-3 rounded-md border border-[#263545] bg-[#111820] px-3 py-2">
+      <div className="text-xs font-semibold uppercase text-[#64748b]">{label}</div>
+      <div className={`break-words text-sm font-semibold ${highlight ? "text-[#86efac]" : "text-white"}`}>{value}</div>
+    </div>
+  );
 }
 
 function ProjectGeneralEditor({
@@ -1686,6 +1785,125 @@ function SummaryTile({ label, value }: { label: string; value: React.ReactNode }
       <div className="mt-1 text-sm font-semibold text-white">{value}</div>
     </div>
   );
+}
+
+function buildProjectIntelligenceSummaries(files: ProjectFileRow[]): CategoryIntelligenceSummary[] {
+  return [
+    buildCategoryIntelligenceSummary("PLC", "PLC", files),
+    buildCategoryIntelligenceSummary("HMI", "HMI", files),
+    buildCategoryIntelligenceSummary("Robot", "ROBOT", files),
+    buildCategoryIntelligenceSummary("Vision", "VISION", files),
+    buildCategoryIntelligenceSummary("Electrical", "ELECTRICAL", files),
+    buildCategoryIntelligenceSummary("Mechanical", "MECHANICAL", files),
+    buildCategoryIntelligenceSummary("Backup", "BACKUP", files),
+  ];
+}
+
+function buildCategoryIntelligenceSummary(
+  label: string,
+  category: string,
+  files: ProjectFileRow[],
+): CategoryIntelligenceSummary {
+  const categoryFiles = files
+    .filter((file) => file.category === category)
+    .sort((first, second) => new Date(second.uploadedAt).getTime() - new Date(first.uploadedAt).getTime());
+  const latest = categoryFiles[0];
+
+  return {
+    label,
+    category,
+    manufacturer: latest?.manufacturer || "-",
+    softwareName: latest?.softwareName || latest?.platform || "-",
+    softwareVersion: latest?.softwareVersion || "-",
+    latestArchiveVersion: latest?.versions?.[0]?.versionNo || latest?.currentVersionNo || "-",
+    fileCount: categoryFiles.length,
+    lastUploadDate: latest?.uploadedAt || null,
+  };
+}
+
+function getLastUploadedFile(files: ProjectFileRow[]): ProjectFileRow | null {
+  return [...files].sort((first, second) => new Date(second.uploadedAt).getTime() - new Date(first.uploadedAt).getTime())[0] || null;
+}
+
+function formatOptionalDateTime(value?: string | null): string {
+  return value ? formatDateTime(value) : "Not available";
+}
+
+function formatSystemSummary(summary?: CategoryIntelligenceSummary, fallback?: string | null): string {
+  if (summary && summary.fileCount > 0) {
+    const parts = [summary.manufacturer, summary.softwareName, summary.softwareVersion].filter((part) => part && part !== "-");
+
+    return parts.length > 0 ? parts.join(" / ") : `${summary.fileCount} file${summary.fileCount === 1 ? "" : "s"}`;
+  }
+
+  return fallback?.trim() || "Not uploaded yet";
+}
+
+function calculateArchiveHealth(summaries: CategoryIntelligenceSummary[], backupStatus: BackupStatusSummary | null): number {
+  const requiredCategories = ["PLC", "HMI", "ROBOT", "VISION", "ELECTRICAL", "MECHANICAL"];
+  const availableCategories = requiredCategories.filter((category) => summaries.some((summary) => summary.category === category && summary.fileCount > 0));
+  const categoryScore = (availableCategories.length / requiredCategories.length) * 75;
+  const metadataScore = calculateMetadataCompleteness(summaries) * 15;
+  const backupScore = isSuccessfulBackupStatus(backupStatus?.lastBackup?.status || backupStatus?.status) ? 10 : 0;
+
+  return Math.max(0, Math.min(100, Math.round(categoryScore + metadataScore + backupScore)));
+}
+
+function calculateMetadataCompleteness(summaries: CategoryIntelligenceSummary[]): number {
+  const uploaded = summaries.filter((summary) => summary.fileCount > 0 && summary.category !== "BACKUP");
+
+  if (uploaded.length === 0) {
+    return 0;
+  }
+
+  const complete = uploaded.filter(
+    (summary) => summary.manufacturer !== "-" || summary.softwareName !== "-" || summary.softwareVersion !== "-",
+  );
+
+  return complete.length / uploaded.length;
+}
+
+function formatLatestBackupStatus(backupStatus: BackupStatusSummary | null): string {
+  const status = backupStatus?.lastBackup?.status || backupStatus?.status;
+
+  if (!status) {
+    return "Not available";
+  }
+
+  if (isSuccessfulBackupStatus(status)) {
+    return "Verified";
+  }
+
+  return status.replaceAll("_", " ");
+}
+
+function isSuccessfulBackupStatus(status?: string | null): boolean {
+  return status === "COMPLETED";
+}
+
+function formatRelativeDate(value: string): string {
+  const date = new Date(value);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Not available";
+  }
+
+  if (diffDays <= 0) {
+    return "Today";
+  }
+
+  if (diffDays === 1) {
+    return "Yesterday";
+  }
+
+  if (diffDays < 30) {
+    return `${diffDays} days ago`;
+  }
+
+  return formatDate(value);
 }
 
 function formatEngineeringMetadata(file: Pick<ProjectFileRow, "manufacturer" | "softwareName" | "softwareVersion" | "platform">): string {
