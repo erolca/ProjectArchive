@@ -6,6 +6,7 @@ import { assertInsideStorageRoot, getStorageConfig, toStorageRelativePath } from
 import { buildPathFromRelativeStoragePath } from "../storage/storage.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { requirePermission } from "../auth/permissions";
+import { isProjectInfoSystemFile } from "../projects/project-info-file.service";
 import type { IntegrityCheckSummary, IntegrityIssue, StorageIntegrityScanResult } from "./integrity.types";
 
 const PROJECTS_FOLDER = "projects";
@@ -190,6 +191,10 @@ export async function runStorageIntegrityScan(user: AuthenticatedUser): Promise<
   const orphanFiles = await collectProjectStorageFiles(storageRoot, projectsRoot);
 
   for (const orphanPath of orphanFiles.filter((filePath) => !trackedStoragePaths.has(filePath))) {
+    if (isProjectInfoSystemFile(orphanPath)) {
+      continue;
+    }
+
     orphanFileCheck.warnings.push({
       severity: "WARNING",
       code: "ORPHAN_STORAGE_FILE",

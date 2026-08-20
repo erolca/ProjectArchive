@@ -4,6 +4,11 @@ import { requirePermission } from "../auth/permissions";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { createProjectFolders, openProjectFolderInExplorer, renameProjectFolder } from "../storage/storage.service";
 import { logActivity } from "../activity/activity.service";
+import {
+  logProjectInfoSyncFailure,
+  logProjectInfoSyncSkipped,
+  syncProjectInfoFile,
+} from "./project-info-file.service";
 import { listProjects } from "./project.search";
 import { createProjectSchema, projectCodeParamSchema, projectIdSchema, updateProjectSchema } from "./project.validators";
 import type { CreateProjectInput, CustomerInput, ProjectListQuery, UpdateProjectInput } from "./project.types";
@@ -91,6 +96,16 @@ export async function createProject(user: AuthenticatedUser, input: CreateProjec
     });
 
     throw error;
+  }
+
+  try {
+    const result = await syncProjectInfoFile(project);
+
+    if (result.skipped) {
+      logProjectInfoSyncSkipped(project.projectCode, "project creation", result.reason);
+    }
+  } catch {
+    logProjectInfoSyncFailure(project.projectCode, "project creation");
   }
 
   await logActivity({
@@ -200,6 +215,16 @@ export async function updateProject(user: AuthenticatedUser, projectId: number, 
       entityId: project.id,
       details,
     });
+  }
+
+  try {
+    const result = await syncProjectInfoFile(project);
+
+    if (result.skipped) {
+      logProjectInfoSyncSkipped(project.projectCode, "project update", result.reason);
+    }
+  } catch {
+    logProjectInfoSyncFailure(project.projectCode, "project update");
   }
 
   if (projectCodeChanged && data.projectCode) {

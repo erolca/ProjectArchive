@@ -35,6 +35,7 @@ Completed features:
 * Project status can be updated from the Project Detail General section by users with project edit permission.
 * Project General Information can be edited after creation with a single Save Changes action and per-field audit logging that records old value, new value, user, and timestamp.
 * Project Code changes rename the project storage folder, preserve existing files/versions, update storage path pointers, and roll back the folder rename if the database update fails.
+* Project folders include an automatically generated `_PROJECT_INFO.txt` file with current project/customer/machine metadata for engineers browsing the physical archive.
 * Project Detail General view includes a compact Project Intelligence summary with key systems, archive health scoring, completeness checklist, suggestions, latest backup, and last update using existing project metadata, uploaded file metadata, archive versions, and backup status.
 * Project Detail includes an Engineering Timeline section that groups project-specific ActivityLog events by date using the existing activity API and permissions.
 * Project Detail General view includes a local Windows `Open Project Folder` action that opens the current project's storage directory through a secure project-id-only API endpoint.
@@ -77,6 +78,7 @@ Current architecture:
 * Project status updates reuse the existing project update API and log status-change details in ActivityLog.
 * Project General edits reuse `PUT /api/projects/[id]`, send only modified fields, and remain disabled for read-only roles.
 * Project storage folder rename is handled in the project service using the storage service: filesystem target existence is checked first, the folder is renamed before the database update, relative storage path pointers are updated inside the project update transaction, and the folder is renamed back if the transaction fails.
+* `_PROJECT_INFO.txt` is generated from database metadata after project folder creation and after successful General Information updates; it is written atomically through a temp file and rename, is not represented by ProjectFile/FileVersion records, and can be regenerated for legacy folders with `npm run sync:project-info`.
 * Open Project Folder derives the target directory from immutable `Project.id` and stored `projectCode`, validates the resolved path remains under `STORAGE_ROOT/projects`, confirms the directory exists, and launches Windows Explorer with a safe argument array without exposing the absolute path in API responses.
 * Project Code validation is shared across backend project validation and storage path validation: codes are trimmed, normalized to uppercase, capped at 40 characters, and limited to letters, numbers, hyphen, and underscore so they remain safe under `STORAGE_ROOT/projects`.
 * Project Intelligence and Archive Health are computed in the Project Detail UI from already-loaded project and file records, plus the existing backup status endpoint; they do not run preview scanners, background jobs, or add database fields.
@@ -108,6 +110,7 @@ Database changes:
 * No database fields were added for engineering detection; detected type, confidence, evidence, and warnings are calculated on demand.
 * No database fields were added for vendor scanner output; scanner summaries, metrics, evidence, and warnings are calculated during preview.
 * No database fields were added for storage integrity scans; results are calculated on demand and not persisted.
+* No database fields were added for `_PROJECT_INFO.txt`; it is a generated storage-side representation of existing project metadata.
 
 API endpoints:
 

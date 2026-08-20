@@ -4,7 +4,8 @@
     "build": "next build",
     "typecheck": "tsc --noEmit",
     "prisma:validate": "prisma validate",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "sync:project-info": "tsx prisma/sync-project-info.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
