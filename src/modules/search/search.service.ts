@@ -67,6 +67,7 @@ async function searchProjects(
       date: project.updatedAt.toISOString(),
       metadata: compactMetadata([
         ["Serial", project.serialNumber],
+        ["Customer Project Code", project.customerProjectCode],
         ["Status", project.status],
         ["Machine", project.machineType],
         ["PLC", project.plcBrand],
@@ -225,6 +226,7 @@ function buildProjectWhere(query: EnterpriseSearchQuery): Prisma.ProjectWhereInp
     and.push({
       OR: [
         { projectCode: { contains: search } },
+        { customerProjectCode: { contains: search } },
         { serialNumber: { contains: search } },
         { machineName: { contains: search } },
         { machineType: { contains: search } },
@@ -275,6 +277,7 @@ function buildFileWhere(query: EnterpriseSearchQuery): Prisma.ProjectFileWhereIn
         { currentVersionNo: { contains: search } },
         { checksum: { contains: search } },
         { project: { projectCode: { contains: search } } },
+        { project: { customerProjectCode: { contains: search } } },
         { project: { serialNumber: { contains: search } } },
         { project: { machineName: { contains: search } } },
         { project: { customer: { customerName: { contains: search } } } },
@@ -336,6 +339,7 @@ function buildActivityWhere(query: EnterpriseSearchQuery): Prisma.ActivityLogWhe
         { entityType: { contains: search } },
         { details: { contains: search } },
         { project: { projectCode: { contains: search } } },
+        { project: { customerProjectCode: { contains: search } } },
         { project: { serialNumber: { contains: search } } },
         { project: { machineName: { contains: search } } },
         { project: { customer: { customerName: { contains: search } } } },

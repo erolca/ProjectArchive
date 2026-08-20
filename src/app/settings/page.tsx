@@ -15,6 +15,10 @@ interface SystemSettings {
   fileBackupSchedule?: string | null;
   maximumUploadSizeMb: number;
   departments: string[];
+  sessionInactivityTimeoutMinutes: number;
+  sessionWarningMinutes: number;
+  sessionMaxLifetimeHours: number;
+  sessionSlidingEnabled: boolean;
   lastFileBackupStartedAt?: string | null;
   lastFileBackupFinishedAt?: string | null;
   lastFileBackupDurationMs?: number | null;
@@ -205,6 +209,10 @@ const emptySettings: SystemSettings = {
   fileBackupSchedule: "",
   maximumUploadSizeMb: 2048,
   departments: [],
+  sessionInactivityTimeoutMinutes: 30,
+  sessionWarningMinutes: 2,
+  sessionMaxLifetimeHours: 12,
+  sessionSlidingEnabled: true,
   lastFileBackupStatus: "",
   lastFileBackupSize: null,
   lastFileBackupResult: null,
@@ -265,6 +273,10 @@ export default function SettingsPage() {
         fileBackupSchedule: settings.fileBackupSchedule || undefined,
         maximumUploadSizeMb: settings.maximumUploadSizeMb,
         departments: settings.departments,
+        sessionInactivityTimeoutMinutes: settings.sessionInactivityTimeoutMinutes,
+        sessionWarningMinutes: settings.sessionWarningMinutes,
+        sessionMaxLifetimeHours: settings.sessionMaxLifetimeHours,
+        sessionSlidingEnabled: settings.sessionSlidingEnabled,
       });
       const normalized = normalizeSettings(result);
       setSettings(normalized);
@@ -623,6 +635,32 @@ export default function SettingsPage() {
           ) : null}
         </SettingsPanel>
 
+        <SettingsPanel title="Security">
+          <NumberField
+            label="Inactivity Timeout (minutes)"
+            value={settings.sessionInactivityTimeoutMinutes}
+            onChange={(value) => updateField("sessionInactivityTimeoutMinutes", value)}
+          />
+          <NumberField
+            label="Warning Time (minutes)"
+            value={settings.sessionWarningMinutes}
+            onChange={(value) => updateField("sessionWarningMinutes", value)}
+          />
+          <NumberField
+            label="Maximum Session Lifetime (hours)"
+            value={settings.sessionMaxLifetimeHours}
+            onChange={(value) => updateField("sessionMaxLifetimeHours", value)}
+          />
+          <CheckboxField
+            label="Enable Sliding Session"
+            checked={settings.sessionSlidingEnabled}
+            onChange={(checked) => updateField("sessionSlidingEnabled", checked)}
+          />
+          <div className="rounded-md border border-[#263545] bg-[#0b0f14] p-3 text-xs leading-5 text-[#9fb0bf]">
+            Session policy applies to all authenticated users. Only ADMIN users can save changes to these values.
+          </div>
+        </SettingsPanel>
+
         <SettingsPanel title="Backup Status" className="xl:col-span-2">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <MetricTile label="Last Backup Date" value={formatDateTime(getLastBackupValue(settings, backupStatus, "finishedAt"))} />
@@ -773,7 +811,7 @@ export default function SettingsPage() {
                       ]}
                     />
                     {restoreMode === "SINGLE_PROJECT" ? (
-                      <TextField label="Project Code" value={restoreProjectCode} onChange={setRestoreProjectCode} placeholder="PRJ-2026-001" />
+                      <TextField label="Project Code" value={restoreProjectCode} onChange={setRestoreProjectCode} placeholder="PRJ-2026-002 or MTR26008" />
                     ) : null}
                   </div>
                   {restoreMode === "SELECTED_CATEGORIES" ? (
@@ -797,7 +835,7 @@ export default function SettingsPage() {
                         value={restoreFiles}
                         onChange={(event) => setRestoreFiles(event.target.value)}
                         rows={5}
-                        placeholder="PRJ-2026-001/PLC/backup.zip"
+                        placeholder="MTR26008/PLC/backup.zip"
                         className="mt-1 w-full rounded-md border border-[#263545] bg-[#06090d] px-3 py-2 text-sm text-white outline-none focus:border-[#2f80ed]"
                       />
                     </label>
@@ -1242,6 +1280,10 @@ function normalizeSettings(settings: SystemSettings): SystemSettings {
     databaseBackupSchedule: settings.databaseBackupSchedule || "",
     fileBackupSchedule: settings.fileBackupSchedule || "",
     departments: settings.departments || [],
+    sessionInactivityTimeoutMinutes: settings.sessionInactivityTimeoutMinutes || 30,
+    sessionWarningMinutes: settings.sessionWarningMinutes || 2,
+    sessionMaxLifetimeHours: settings.sessionMaxLifetimeHours || 12,
+    sessionSlidingEnabled: settings.sessionSlidingEnabled ?? true,
   };
 }
 

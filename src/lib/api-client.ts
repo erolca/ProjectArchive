@@ -1,6 +1,12 @@
 "use client";
 
-import { getStoredAuthToken } from "./client-auth";
+import {
+  getStoredAuthToken,
+  markSessionActivity,
+  notifySessionOperationEnd,
+  notifySessionOperationStart,
+  refreshStoredSession,
+} from "./client-auth";
 import { sanitizeUserMessage } from "./user-messages";
 
 type ApiSuccess<T> = {
@@ -35,12 +41,22 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     headers.set("authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(path, {
-    ...init,
-    headers,
-  });
+  notifySessionOperationStart();
+  let response: Response;
+  const keepAlive = startSessionKeepAlive();
+
+  try {
+    response = await fetch(path, {
+      ...init,
+      headers,
+    });
+  } finally {
+    window.clearInterval(keepAlive);
+    notifySessionOperationEnd();
+  }
   const contentType = response.headers.get("content-type") || "";
   const responseText = await response.text();
+  notifySessionOperationEnd();
 
   if (!contentType.includes("application/json")) {
     throw new Error(sanitizeUserMessage(buildNonJsonError(response, responseText)));
@@ -57,6 +73,9 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   if (!payload.success) {
     throw new Error(sanitizeUserMessage(payload.error.message));
   }
+
+  markSessionActivity();
+  await refreshAfterApiActivity(path);
 
   return payload.data;
 }
@@ -114,9 +133,18 @@ export async function downloadApiFile(path: string): Promise<{ blob: Blob; fileN
     headers.set("authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(path, {
-    headers,
-  });
+  notifySessionOperationStart();
+  let response: Response;
+  const keepAlive = startSessionKeepAlive();
+
+  try {
+    response = await fetch(path, {
+      headers,
+    });
+  } finally {
+    window.clearInterval(keepAlive);
+    notifySessionOperationEnd();
+  }
 
   if (!response.ok) {
     const contentType = response.headers.get("content-type") || "";
@@ -128,6 +156,9 @@ export async function downloadApiFile(path: string): Promise<{ blob: Blob; fileN
 
     throw new Error(sanitizeUserMessage(`Download failed (${response.status}).`, "Download could not be completed."));
   }
+
+  markSessionActivity();
+  await refreshAfterApiActivity(path);
 
   return {
     blob: await response.blob(),
@@ -143,9 +174,18 @@ export async function getApiBlob(path: string): Promise<{ blob: Blob; contentTyp
     headers.set("authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(path, {
-    headers,
-  });
+  notifySessionOperationStart();
+  let response: Response;
+  const keepAlive = startSessionKeepAlive();
+
+  try {
+    response = await fetch(path, {
+      headers,
+    });
+  } finally {
+    window.clearInterval(keepAlive);
+    notifySessionOperationEnd();
+  }
 
   if (!response.ok) {
     const contentType = response.headers.get("content-type") || "";
@@ -158,10 +198,27 @@ export async function getApiBlob(path: string): Promise<{ blob: Blob; contentTyp
     throw new Error(sanitizeUserMessage(`Preview failed (${response.status}).`, "Preview could not be loaded."));
   }
 
+  markSessionActivity();
+  await refreshAfterApiActivity(path);
+
   return {
     blob: await response.blob(),
     contentType: response.headers.get("content-type") || "application/octet-stream",
   };
+}
+
+async function refreshAfterApiActivity(path: string): Promise<void> {
+  if (path.startsWith("/api/auth/login") || path.startsWith("/api/auth/refresh") || path.startsWith("/api/auth/logout")) {
+    return;
+  }
+
+  await refreshStoredSession(false).catch(() => undefined);
+}
+
+function startSessionKeepAlive(): number {
+  return window.setInterval(() => {
+    void refreshStoredSession(false).catch(() => undefined);
+  }, 60_000);
 }
 
 function getFileNameFromDisposition(disposition: string | null): string | null {

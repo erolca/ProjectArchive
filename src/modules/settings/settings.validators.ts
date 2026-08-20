@@ -22,4 +22,20 @@ export const updateSettingsSchema = z.object({
   fileBackupSchedule: optionalText(120),
   maximumUploadSizeMb: z.number().int().positive().max(204800),
   departments: departmentsSchema,
+  sessionInactivityTimeoutMinutes: z.number().int().min(5).max(480).optional(),
+  sessionWarningMinutes: z.number().int().min(1).max(60).optional(),
+  sessionMaxLifetimeHours: z.number().int().min(1).max(24).optional(),
+  sessionSlidingEnabled: z.boolean().optional(),
+}).refine((settings) => {
+  if (
+    settings.sessionInactivityTimeoutMinutes !== undefined &&
+    settings.sessionWarningMinutes !== undefined
+  ) {
+    return settings.sessionWarningMinutes < settings.sessionInactivityTimeoutMinutes;
+  }
+
+  return true;
+}, {
+  message: "Warning time must be shorter than inactivity timeout.",
+  path: ["sessionWarningMinutes"],
 });

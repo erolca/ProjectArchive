@@ -28,7 +28,10 @@ Completed features:
 * Prisma/MySQL schema with projects, customers, files, versions, users, roles, activity logs, tags, service/commissioning records, and system settings.
 * Local disk/NAS-ready storage foundation with safe paths, project folders, filename sanitizing, SHA256 checksums, and path traversal protection.
 * Authentication foundation with password hashing, JWT sessions, current-user resolution, role permissions, and default seed support.
+* Session management and security: configurable inactivity timeout, warning time, maximum session lifetime, sliding JWT refresh, warning modal, return-to-login redirect, and audit logging for logout/session extension.
 * Project backend and UI for create, list, search, filter, sort, detail, and short-link lookup.
+* Flexible Project Code support: project codes are required and unique but no longer restricted to `PRJ-YYYY-NNN`; safe company formats such as `MTR26008`, `NRM26015`, `NRM-26015`, `MTR26-008`, and `ABC_2026_001` are supported.
+* Customer Project Code support: optional customer/order/reference code is stored separately from internal `Project.id` and company Project Code, appears in General Information, and participates in project and enterprise search.
 * Project status can be updated from the Project Detail General section by users with project edit permission.
 * Project General Information can be edited after creation with a single Save Changes action and per-field audit logging that records old value, new value, user, and timestamp.
 * Project Code changes rename the project storage folder, preserve existing files/versions, update storage path pointers, and roll back the folder rename if the database update fails.
@@ -63,6 +66,7 @@ Current architecture:
 * Shared helpers live under `src/lib`.
 * Prisma stores metadata; actual files stay on disk under `STORAGE_ROOT`.
 * API routes use consistent JSON success/error responses.
+* Session policy is stored in the SystemSettings singleton; the client enforces inactivity UX, the server issues refreshed JWTs capped by maximum lifetime, and shared API helpers refresh sessions on authenticated activity without logging every request.
 * Backup service copies `STORAGE_ROOT/projects` to the configured external/local/NAS destination while preserving directory structure, filenames, and timestamps.
 * Backup progress is tracked in process memory during the existing synchronous backup run and exposed through a polling API; it does not change backup output format, file layout, or incremental copy rules.
 * Backup verification compares source and backup folders using SHA256 first, file size second, and modified date only as a warning when checksum is unavailable.
@@ -72,6 +76,7 @@ Current architecture:
 * Project status updates reuse the existing project update API and log status-change details in ActivityLog.
 * Project General edits reuse `PUT /api/projects/[id]`, send only modified fields, and remain disabled for read-only roles.
 * Project storage folder rename is handled in the project service using the storage service: filesystem target existence is checked first, the folder is renamed before the database update, relative storage path pointers are updated inside the project update transaction, and the folder is renamed back if the transaction fails.
+* Project Code validation is shared across backend project validation and storage path validation: codes are trimmed, normalized to uppercase, capped at 40 characters, and limited to letters, numbers, hyphen, and underscore so they remain safe under `STORAGE_ROOT/projects`.
 * Project Intelligence and Archive Health are computed in the Project Detail UI from already-loaded project and file records, plus the existing backup status endpoint; they do not run preview scanners, background jobs, or add database fields.
 * Engineering Timeline reuses `GET /api/activity?projectId=...`; no duplicate activity service or timeline-specific database table is used.
 * Preview service reuses file metadata, storage path safety, authentication, and file permissions; binary previews stream inline through authenticated API routes.
@@ -89,11 +94,14 @@ Database changes:
 * Added file categories for machine archive coverage, including Pneumatic, Vision, Camera, Photo, Video, FAT, SAT, and Spare Parts.
 * Added user profile fields: full name and department.
 * Added system settings singleton table.
+* Added session policy fields to system settings for inactivity timeout, warning time, maximum session lifetime, and sliding-session enablement.
 * Added audit actions for user lifecycle and archive uploads.
+* Added audit actions for automatic logout and explicit session extension.
 * Added last file-backup result fields to system settings and backup audit actions.
 * Added backup run history table and backup verification audit actions.
 * Added restore audit actions for disaster recovery operations.
 * Added engineering metadata fields to project files and file versions.
+* Added optional `Project.customerProjectCode` metadata field for customer project/order/reference codes; it is not used for filesystem paths or relationships.
 * No database fields were added for file intelligence; extracted metadata is computed on demand to avoid migration and cache invalidation risk.
 * No database fields were added for engineering detection; detected type, confidence, evidence, and warnings are calculated on demand.
 * No database fields were added for vendor scanner output; scanner summaries, metrics, evidence, and warnings are calculated during preview.
@@ -101,7 +109,7 @@ Database changes:
 
 API endpoints:
 
-* Auth: `POST /api/auth/login`, `GET /api/auth/me`
+* Auth: `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/refresh`, `GET /api/auth/session`, `GET /api/auth/me`
 * Dashboard: `GET /api/dashboard`
 * Projects: `GET/POST /api/projects`, `GET/PUT /api/projects/[id]`, `GET /api/projects/search`, `GET /api/projects/code/[projectCode]`
 * Files: `GET /api/projects/[id]/files`, `POST /api/projects/[id]/files/upload`, `POST /api/projects/[id]/files/prepare`, `POST /api/projects/[id]/files/finalize`, `POST /api/files/[id]/versions`, `GET /api/files/[id]/download`

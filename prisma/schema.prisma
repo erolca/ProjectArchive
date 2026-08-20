@@ -52,6 +52,8 @@ enum ActivityAction {
   LOGIN
   LOGOUT
   LOGIN_FAILED
+  AUTO_LOGOUT
+  SESSION_EXTENDED
   PROJECT_CREATED
   PROJECT_UPDATED
   PROJECT_ARCHIVED
@@ -143,7 +145,8 @@ model Customer {
 
 model Project {
   id                   Int           @id @default(autoincrement())
-  projectCode          String        @unique @db.VarChar(30)
+  projectCode          String        @unique @db.VarChar(40)
+  customerProjectCode  String?       @db.VarChar(80)
   serialNumber         String        @unique @db.VarChar(80)
   machineName          String        @db.VarChar(255)
   machineType          String?       @db.VarChar(120)
@@ -181,6 +184,7 @@ model Project {
   tags                 ProjectTag[]
 
   @@index([projectCode])
+  @@index([customerProjectCode])
   @@index([serialNumber])
   @@index([customerId])
   @@index([status])
@@ -345,6 +349,10 @@ model SystemSettings {
   fileBackupSchedule     String?  @db.VarChar(120)
   maximumUploadSizeMb    Int      @default(2048)
   departments            Json
+  sessionInactivityTimeoutMinutes Int @default(30)
+  sessionWarningMinutes  Int      @default(2)
+  sessionMaxLifetimeHours Int     @default(12)
+  sessionSlidingEnabled  Boolean  @default(true)
   lastFileBackupStartedAt DateTime?
   lastFileBackupFinishedAt DateTime?
   lastFileBackupDurationMs Int?

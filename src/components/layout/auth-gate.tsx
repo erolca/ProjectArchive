@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getStoredAuthToken } from "../../lib/client-auth";
 import { Sidebar } from "./sidebar";
+import { SessionManager } from "./session-manager";
 import { Topbar } from "./topbar";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
@@ -16,7 +17,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     const isLoginPage = pathname === "/login";
 
     if (!token && !isLoginPage) {
-      router.replace("/login");
+      const returnTo = `${pathname}${window.location.search || ""}`;
+      router.replace(`/login?returnTo=${encodeURIComponent(returnTo)}`);
       return;
     }
 
@@ -42,6 +44,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen flex-1 flex-col">
         <Topbar />
         <main className="flex-1 px-4 py-5 lg:px-6">{children}</main>
+        <SessionManager />
       </div>
     </div>
   );

@@ -51,6 +51,7 @@ export async function createProject(user: AuthenticatedUser, input: CreateProjec
   const project = await prisma.project.create({
     data: {
       projectCode: data.projectCode,
+      customerProjectCode: data.customerProjectCode,
       serialNumber: data.serialNumber,
       machineName: data.machineName,
       machineType: data.machineType,
@@ -149,6 +150,7 @@ export async function updateProject(user: AuthenticatedUser, projectId: number, 
         },
         data: {
           projectCode: data.projectCode,
+          customerProjectCode: nullableUpdateValue(data.customerProjectCode, rawInput, "customerProjectCode"),
           serialNumber: data.serialNumber,
           machineName: data.machineName,
           machineType: nullableUpdateValue(data.machineType, rawInput, "machineType"),
@@ -334,6 +336,7 @@ function buildProjectChangeLogs(
   const actor = user.fullName || user.username;
   const changes: Array<[string, string | null | undefined, string | null | undefined]> = [
     ["Project Code", before.projectCode, after.projectCode],
+    ["Customer Project Code", before.customerProjectCode, after.customerProjectCode],
     ["Serial Number", before.serialNumber, after.serialNumber],
     ["Customer Name", before.customer.customerName, after.customer.customerName],
     ["Machine Name", before.machineName, after.machineName],

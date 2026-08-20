@@ -11,6 +11,7 @@ export interface CustomerInput {
 
 export interface CreateProjectInput {
   projectCode: string;
+  customerProjectCode?: string;
   serialNumber: string;
   machineName: string;
   machineType?: string;
@@ -41,6 +42,7 @@ export type UpdateProjectInput = Partial<
 export interface ProjectListQuery {
   q?: string;
   projectCode?: string;
+  customerProjectCode?: string;
   serialNumber?: string;
   customerName?: string;
   machineName?: string;

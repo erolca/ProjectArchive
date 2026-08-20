@@ -9,6 +9,7 @@ import { formatDate } from "../../lib/format";
 interface ProjectRow {
   id: number;
   projectCode: string;
+  customerProjectCode?: string | null;
   serialNumber: string;
   machineName: string;
   machineType?: string | null;
@@ -187,6 +188,9 @@ export default function ProjectsPage() {
                       <Link href={`/projects/${project.id}`} className="font-semibold text-[#38bdf8]">
                         {project.projectCode}
                       </Link>
+                      {project.customerProjectCode ? (
+                        <div className="mt-1 break-words text-xs text-[#9fb0bf]">{project.customerProjectCode}</div>
+                      ) : null}
                     </td>
                     <td className="max-w-[220px] px-4 py-3"><span className="block break-words">{project.customer.customerName}</span></td>
                     <td className="max-w-[260px] px-4 py-3"><span className="block break-words">{project.machineName}</span></td>

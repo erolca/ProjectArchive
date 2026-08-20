@@ -9,7 +9,7 @@ import type {
   StoredFileNameInput,
 } from "../modules/storage/storage.types";
 
-const SAFE_PROJECT_CODE_PATTERN = /^[A-Z0-9]+(?:-[A-Z0-9]+)*$/;
+const SAFE_PROJECT_CODE_PATTERN = /^[A-Z0-9][A-Z0-9_-]{0,39}$/;
 const VERSION_PATTERN = /^V\d+\.\d+$/;
 const UNSAFE_FILENAME_CHARS = /[^A-Za-z0-9._-]/g;
 const MULTIPLE_UNDERSCORES = /_+/g;
@@ -160,7 +160,7 @@ export function validateProjectCode(projectCode: string): string {
   const normalized = projectCode.trim().toUpperCase();
 
   if (!SAFE_PROJECT_CODE_PATTERN.test(normalized)) {
-    throw new Error("Invalid project code. Use uppercase letters, numbers, and dash separators only.");
+    throw new Error("Invalid project code. Use letters, numbers, hyphens, or underscores, up to 40 characters.");
   }
 
   return normalized;

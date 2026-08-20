@@ -11,6 +11,7 @@ import { getUserErrorMessage, sanitizeUserMessage } from "../../../lib/user-mess
 interface ProjectDetail {
   id: number;
   projectCode: string;
+  customerProjectCode?: string | null;
   serialNumber: string;
   machineName: string;
   machineType?: string | null;
@@ -41,6 +42,7 @@ interface ProjectDetail {
 
 interface ProjectGeneralForm {
   projectCode: string;
+  customerProjectCode: string;
   serialNumber: string;
   customerName: string;
   machineName: string;
@@ -478,6 +480,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
       <section className="grid gap-4 xl:grid-cols-3">
         <InfoCard title="Project Information">
           <Field label="Project Code" value={project.projectCode} />
+          {project.customerProjectCode ? <Field label="Customer Project Code" value={project.customerProjectCode} /> : null}
           <Field label="Status" value={project.status} />
           <Field label="Created" value={formatDate(project.createdAt)} />
           <Field label="Updated" value={formatDate(project.updatedAt)} />
@@ -708,6 +711,9 @@ function ProjectIntelligenceCard({
         <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#64748b]">Project Intelligence</div>
         <div className="mt-3 space-y-1">
           <h4 className="break-words text-xl font-semibold text-white">{project.projectCode}</h4>
+          {project.customerProjectCode ? (
+            <div className="break-words text-sm text-[#9fb0bf]">Customer Project Code: {project.customerProjectCode}</div>
+          ) : null}
           <div className="break-words text-sm font-semibold text-[#d9e5ef]">{project.customer.customerName}</div>
           <div className="break-words text-sm text-[#9fb0bf]">{project.machineName}</div>
         </div>
@@ -838,7 +844,20 @@ function ProjectGeneralEditor({
         </div>
       ) : null}
       <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
-        <EditableField label="Project Code" value={form.projectCode} disabled={!canEdit || isSaving} onChange={(value) => onChange("projectCode", value.toUpperCase())} />
+        <EditableField
+          label="Project Code"
+          value={form.projectCode}
+          disabled={!canEdit || isSaving}
+          placeholder="PRJ-2026-002 or MTR26008"
+          onChange={(value) => onChange("projectCode", value.toUpperCase())}
+        />
+        <EditableField
+          label="Customer Project Code"
+          value={form.customerProjectCode}
+          disabled={!canEdit || isSaving}
+          placeholder="2026-11038-A"
+          onChange={(value) => onChange("customerProjectCode", value)}
+        />
         <EditableField label="Serial Number" value={form.serialNumber} disabled={!canEdit || isSaving} onChange={(value) => onChange("serialNumber", value.toUpperCase())} />
         <EditableField label="Customer Name" value={form.customerName} disabled={!canEdit || isSaving} onChange={(value) => onChange("customerName", value)} />
         <EditableField label="Machine Name" value={form.machineName} disabled={!canEdit || isSaving} onChange={(value) => onChange("machineName", value)} />
@@ -886,11 +905,13 @@ function EditableField({
   label,
   value,
   disabled,
+  placeholder,
   onChange,
 }: {
   label: string;
   value: string;
   disabled: boolean;
+  placeholder?: string;
   onChange: (value: string) => void;
 }) {
   return (
@@ -900,6 +921,7 @@ function EditableField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
+        placeholder={placeholder}
         className="mt-1 h-10 w-full rounded-md border border-[#263545] bg-[#0b0f14] px-3 text-sm text-white outline-none focus:border-[#2f80ed] disabled:cursor-not-allowed disabled:opacity-60"
       />
     </label>
@@ -909,6 +931,7 @@ function EditableField({
 function toProjectGeneralForm(project: ProjectDetail): ProjectGeneralForm {
   return {
     projectCode: project.projectCode,
+    customerProjectCode: project.customerProjectCode || "",
     serialNumber: project.serialNumber,
     customerName: project.customer.customerName,
     machineName: project.machineName,
@@ -924,7 +947,8 @@ function buildProjectGeneralChanges(project: ProjectDetail, form: ProjectGeneral
   const initial = toProjectGeneralForm(project);
   const changes: Record<string, unknown> = {};
 
-  addStringChange(changes, "projectCode", initial.projectCode, form.projectCode);
+  addProjectCodeChange(changes, initial.projectCode, form.projectCode);
+  addStringChange(changes, "customerProjectCode", initial.customerProjectCode, form.customerProjectCode);
   addStringChange(changes, "serialNumber", initial.serialNumber, form.serialNumber);
   addStringChange(changes, "machineName", initial.machineName, form.machineName);
   addStringChange(changes, "machineType", initial.machineType, form.machineType);
@@ -945,6 +969,12 @@ function buildProjectGeneralChanges(project: ProjectDetail, form: ProjectGeneral
 function addStringChange(changes: Record<string, unknown>, key: string, oldValue: string, newValue: string): void {
   if (normalizeFormValue(oldValue) !== normalizeFormValue(newValue)) {
     changes[key] = normalizeFormValue(newValue);
+  }
+}
+
+function addProjectCodeChange(changes: Record<string, unknown>, oldValue: string, newValue: string): void {
+  if (oldValue !== newValue) {
+    changes.projectCode = newValue;
   }
 }
 

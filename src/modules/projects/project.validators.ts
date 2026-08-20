@@ -1,11 +1,21 @@
 import { ProjectStatus } from "@prisma/client";
 import { z } from "zod";
+import { validateProjectCode } from "../../lib/file-utils";
 
 const projectCodeSchema = z
   .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^PRJ-\d{4}-\d{3}$/, "Project code must use PRJ-YYYY-NNN format.");
+  .transform((value, ctx) => {
+    try {
+      return validateProjectCode(value);
+    } catch (error) {
+      ctx.addIssue({
+        code: "custom",
+        message: error instanceof Error ? error.message : "Invalid project code.",
+      });
+
+      return z.NEVER;
+    }
+  });
 
 const serialNumberSchema = z
   .string()
@@ -44,6 +54,7 @@ export const customerInputSchema = z
 
 export const createProjectSchema = z.object({
   projectCode: projectCodeSchema,
+  customerProjectCode: optionalText(80),
   serialNumber: serialNumberSchema,
   machineName: z.string().trim().min(1).max(255),
   machineType: optionalText(120),
@@ -73,7 +84,8 @@ export const updateProjectSchema = createProjectSchema
 
 export const projectListQuerySchema = z.object({
   q: optionalText(255),
-  projectCode: optionalText(30).transform((value) => value?.toUpperCase()),
+  projectCode: optionalText(40).transform((value) => value?.toUpperCase()),
+  customerProjectCode: optionalText(80),
   serialNumber: optionalText(80).transform((value) => value?.toUpperCase()),
   customerName: optionalText(255),
   machineName: optionalText(255),

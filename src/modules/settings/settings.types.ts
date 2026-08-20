@@ -8,6 +8,10 @@ export interface SystemSettingsDto {
   fileBackupSchedule?: string | null;
   maximumUploadSizeMb: number;
   departments: string[];
+  sessionInactivityTimeoutMinutes: number;
+  sessionWarningMinutes: number;
+  sessionMaxLifetimeHours: number;
+  sessionSlidingEnabled: boolean;
   lastFileBackupStartedAt?: Date | null;
   lastFileBackupFinishedAt?: Date | null;
   lastFileBackupDurationMs?: number | null;
@@ -28,4 +32,8 @@ export interface UpdateSettingsInput {
   fileBackupSchedule?: string;
   maximumUploadSizeMb: number;
   departments: string[];
+  sessionInactivityTimeoutMinutes?: number;
+  sessionWarningMinutes?: number;
+  sessionMaxLifetimeHours?: number;
+  sessionSlidingEnabled?: boolean;
 }

@@ -64,6 +64,10 @@ export function buildProjectWhere(query: ReturnType<typeof projectListQuerySchem
     and.push({ projectCode: { contains: query.projectCode } });
   }
 
+  if (query.customerProjectCode) {
+    and.push({ customerProjectCode: { contains: query.customerProjectCode } });
+  }
+
   if (query.serialNumber) {
     and.push({ serialNumber: { contains: query.serialNumber } });
   }
@@ -92,6 +96,7 @@ export function buildProjectWhere(query: ReturnType<typeof projectListQuerySchem
     and.push({
       OR: [
         { projectCode: { contains: query.q } },
+        { customerProjectCode: { contains: query.q } },
         { serialNumber: { contains: query.q } },
         { machineName: { contains: query.q } },
         { plcBrand: { contains: query.q } },

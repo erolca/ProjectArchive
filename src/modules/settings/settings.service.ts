@@ -63,6 +63,10 @@ function toSettingsDto(settings: {
   lastFileBackupSize?: bigint | null;
   lastFileBackupResult?: unknown;
   lastFileBackupDestination?: string | null;
+  sessionInactivityTimeoutMinutes: number;
+  sessionWarningMinutes: number;
+  sessionMaxLifetimeHours: number;
+  sessionSlidingEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }): SystemSettingsDto {

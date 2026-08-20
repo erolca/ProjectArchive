@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { postApi } from "../../lib/api-client";
 import { getStoredAuthToken, setStoredAuthToken } from "../../lib/client-auth";
@@ -16,6 +16,7 @@ interface LoginResponse {
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [usernameOrEmail, setUsernameOrEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<string | null>(null);
@@ -40,7 +41,7 @@ export default function LoginPage() {
 
       setStoredAuthToken(result.token);
       setStatus(`Signed in as ${result.user.username} (${result.user.role}).`);
-      router.replace("/");
+      router.replace(searchParams.get("returnTo") || "/");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Login failed.");
     } finally {

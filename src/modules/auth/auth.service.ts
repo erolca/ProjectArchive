@@ -3,7 +3,15 @@ import { createAuthToken, extractBearerToken, getSessionExpiresIn, verifyAuthTok
 import { prisma } from "../../lib/prisma";
 import { verifyPassword } from "../../lib/password";
 import { authorizeUser, requirePermission } from "./permissions";
-import type { AuthenticatedUser, LoginInput, LoginResult, Permission } from "./auth.types";
+import type { AuthTokenPayload, AuthenticatedUser, LoginInput, LoginResult, Permission, SessionPolicy, SessionStatus } from "./auth.types";
+
+const SETTINGS_ID = 1;
+const DEFAULT_SESSION_POLICY: SessionPolicy = {
+  inactivityTimeoutMinutes: 30,
+  warningMinutes: 2,
+  maxLifetimeHours: 12,
+  slidingEnabled: true,
+};
 
 export async function login(input: LoginInput): Promise<LoginResult> {
   const usernameOrEmail = input.usernameOrEmail.trim();
@@ -72,10 +80,14 @@ export async function login(input: LoginInput): Promise<LoginResult> {
     role: user.role.name,
   });
 
+  const policy = await getSessionPolicy();
+  const session = createSessionStatus(policy);
+
   return {
     user: authenticatedUser,
-    token: createAuthToken(authenticatedUser),
+    token: createSessionToken(authenticatedUser, policy, session),
     expiresIn: getSessionExpiresIn(),
+    session,
   };
 }
 
@@ -136,6 +148,139 @@ export async function getCurrentUserFromToken(token: string | null): Promise<Aut
   });
 }
 
+export async function refreshSessionFromAuthorizationHeader(
+  authorizationHeader?: string | null,
+  options: { logActivity?: boolean } = {},
+): Promise<{ user: AuthenticatedUser; token: string; expiresIn: string; session: SessionStatus }> {
+  const token = extractBearerToken(authorizationHeader);
+
+  if (!token) {
+    throw new Error("Authentication required.");
+  }
+
+  let payload: AuthTokenPayload;
+
+  try {
+    payload = verifyAuthToken(token);
+  } catch {
+    throw new Error("Authentication required.");
+  }
+
+  const user = await getCurrentUserFromToken(token);
+
+  if (!user) {
+    throw new Error("Authentication required.");
+  }
+
+  const policy = await getSessionPolicy();
+  const now = Date.now();
+  const sessionStartedAt = payload.sessionStartedAt || getPayloadIssuedAt(payload) || now;
+  const maxExpiresAt = payload.maxExpiresAt || sessionStartedAt + policy.maxLifetimeHours * 60 * 60 * 1000;
+
+  if (now >= maxExpiresAt) {
+    throw new Error("Authentication required.");
+  }
+
+  const session: SessionStatus = {
+    policy,
+    sessionStartedAt,
+    lastActivityAt: now,
+    maxExpiresAt,
+    expiresAt: calculateSessionTokenExpiresAt(now, maxExpiresAt, policy),
+  };
+
+  if (options.logActivity) {
+    await logAuthActivity({
+      action: ActivityAction.SESSION_EXTENDED,
+      userId: user.id,
+      details: `Session extended for user id: ${user.id}.`,
+    });
+  }
+
+  return {
+    user,
+    token: createSessionToken(user, policy, session),
+    expiresIn: getSessionExpiresIn(),
+    session,
+  };
+}
+
+export async function getSessionStatusFromAuthorizationHeader(authorizationHeader?: string | null): Promise<SessionStatus> {
+  const token = extractBearerToken(authorizationHeader);
+
+  if (!token) {
+    throw new Error("Authentication required.");
+  }
+
+  let payload: AuthTokenPayload;
+
+  try {
+    payload = verifyAuthToken(token);
+  } catch {
+    throw new Error("Authentication required.");
+  }
+
+  const policy = await getSessionPolicy();
+  const now = Date.now();
+  const sessionStartedAt = payload.sessionStartedAt || getPayloadIssuedAt(payload) || now;
+  const maxExpiresAt = payload.maxExpiresAt || sessionStartedAt + policy.maxLifetimeHours * 60 * 60 * 1000;
+
+  return {
+    policy,
+    sessionStartedAt,
+    lastActivityAt: payload.lastActivityAt || getPayloadIssuedAt(payload) || now,
+    maxExpiresAt,
+    expiresAt: payload.exp ? payload.exp * 1000 : null,
+  };
+}
+
+export async function logoutFromAuthorizationHeader(
+  authorizationHeader?: string | null,
+  reason: "MANUAL" | "INACTIVITY" = "MANUAL",
+): Promise<void> {
+  const token = extractBearerToken(authorizationHeader);
+  const user = await getCurrentUserFromToken(token);
+
+  if (!user) {
+    return;
+  }
+
+  await logAuthActivity({
+    action: reason === "INACTIVITY" ? ActivityAction.AUTO_LOGOUT : ActivityAction.LOGOUT,
+    userId: user.id,
+    details: reason === "INACTIVITY"
+      ? `Automatic logout due to inactivity for user id: ${user.id}.`
+      : `Manual logout for user id: ${user.id}.`,
+  });
+}
+
+export async function getSessionPolicy(): Promise<SessionPolicy> {
+  const settings = await prisma.systemSettings.upsert({
+    where: {
+      id: SETTINGS_ID,
+    },
+    update: {},
+    create: {
+      id: SETTINGS_ID,
+      storageRoot: process.env.STORAGE_ROOT || "storage",
+      departments: ["Automation", "Electrical", "Mechanical", "Service"],
+    },
+    select: {
+      sessionInactivityTimeoutMinutes: true,
+      sessionWarningMinutes: true,
+      sessionMaxLifetimeHours: true,
+      sessionSlidingEnabled: true,
+    },
+  });
+
+  return {
+    inactivityTimeoutMinutes: settings.sessionInactivityTimeoutMinutes || DEFAULT_SESSION_POLICY.inactivityTimeoutMinutes,
+    warningMinutes: settings.sessionWarningMinutes || DEFAULT_SESSION_POLICY.warningMinutes,
+    maxLifetimeHours: settings.sessionMaxLifetimeHours || DEFAULT_SESSION_POLICY.maxLifetimeHours,
+    slidingEnabled: settings.sessionSlidingEnabled,
+  };
+}
+
 export async function getCurrentUserFromAuthorizationHeader(
   authorizationHeader?: string | null,
 ): Promise<AuthenticatedUser | null> {
@@ -191,4 +336,42 @@ function toAuthenticatedUser(user: {
     lastLoginAt: user.lastLoginAt,
     createdAt: user.createdAt,
   };
+}
+
+function createSessionStatus(policy: SessionPolicy): SessionStatus {
+  const now = Date.now();
+  const maxExpiresAt = now + policy.maxLifetimeHours * 60 * 60 * 1000;
+
+  return {
+    policy,
+    sessionStartedAt: now,
+    lastActivityAt: now,
+    maxExpiresAt,
+    expiresAt: calculateSessionTokenExpiresAt(now, maxExpiresAt, policy),
+  };
+}
+
+function createSessionToken(user: AuthenticatedUser, policy: SessionPolicy, session: SessionStatus): string {
+  const now = Date.now();
+  const expiresAt = session.expiresAt || calculateSessionTokenExpiresAt(now, session.maxExpiresAt, policy);
+  const expiresInSeconds = Math.max(1, Math.floor((expiresAt - now) / 1000));
+
+  return createAuthToken(user, {
+    expiresInSeconds,
+    sessionStartedAt: session.sessionStartedAt,
+    lastActivityAt: session.lastActivityAt,
+    maxExpiresAt: session.maxExpiresAt,
+  });
+}
+
+function calculateSessionTokenExpiresAt(now: number, maxExpiresAt: number, policy: SessionPolicy): number {
+  if (!policy.slidingEnabled) {
+    return maxExpiresAt;
+  }
+
+  return Math.min(maxExpiresAt, now + policy.inactivityTimeoutMinutes * 60 * 1000);
+}
+
+function getPayloadIssuedAt(payload: AuthTokenPayload): number | null {
+  return payload.iat ? payload.iat * 1000 : null;
 }

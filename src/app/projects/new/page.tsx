@@ -15,6 +15,7 @@ type FieldErrors = Partial<Record<keyof NewProjectForm, string>>;
 
 interface NewProjectForm {
   projectCode: string;
+  customerProjectCode: string;
   serialNumber: string;
   customerName: string;
   machineName: string;
@@ -30,6 +31,7 @@ export default function NewProjectPage() {
   const router = useRouter();
   const [form, setForm] = useState<NewProjectForm>({
     projectCode: "",
+    customerProjectCode: "",
     serialNumber: "",
     customerName: "",
     machineName: "",
@@ -40,7 +42,7 @@ export default function NewProjectPage() {
     status: "DESIGN",
     description: "",
   });
-  const [message, setMessage] = useState("Project code must use PRJ-YYYY-NNN format.");
+  const [message, setMessage] = useState("Project code can use letters, numbers, hyphens, or underscores.");
   const [messageType, setMessageType] = useState<"info" | "success" | "error">("info");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -71,6 +73,7 @@ export default function NewProjectPage() {
     try {
       const project = await postApi<CreatedProject>("/api/projects", {
         projectCode: form.projectCode.trim().toUpperCase(),
+        customerProjectCode: emptyToUndefined(form.customerProjectCode),
         serialNumber: form.serialNumber.trim().toUpperCase(),
         customer: {
           customerName: form.customerName.trim(),
@@ -109,7 +112,20 @@ export default function NewProjectPage() {
 
       <form onSubmit={handleSubmit} className="rounded-md border border-[#263545] bg-[#111820] p-4">
         <div className="grid gap-4 lg:grid-cols-2">
-          <TextField label="Project Code" value={form.projectCode} error={fieldErrors.projectCode} onChange={(value) => updateField("projectCode", value)} />
+          <TextField
+            label="Project Code"
+            value={form.projectCode}
+            error={fieldErrors.projectCode}
+            placeholder="PRJ-2026-002 or MTR26008"
+            onChange={(value) => updateField("projectCode", value)}
+          />
+          <TextField
+            label="Customer Project Code"
+            value={form.customerProjectCode}
+            error={fieldErrors.customerProjectCode}
+            placeholder="2026-11038-A"
+            onChange={(value) => updateField("customerProjectCode", value)}
+          />
           <TextField label="Serial Number" value={form.serialNumber} error={fieldErrors.serialNumber} onChange={(value) => updateField("serialNumber", value)} />
           <TextField label="Customer Name" value={form.customerName} error={fieldErrors.customerName} onChange={(value) => updateField("customerName", value)} />
           <TextField label="Machine Name" value={form.machineName} error={fieldErrors.machineName} onChange={(value) => updateField("machineName", value)} />
@@ -167,11 +183,13 @@ function TextField({
   value,
   onChange,
   error,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   error?: string;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
@@ -179,6 +197,7 @@ function TextField({
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
         aria-invalid={Boolean(error)}
         className={`mt-1 w-full rounded-md border bg-[#0b0f14] px-3 py-2 text-sm text-white outline-none focus:border-[#2f80ed] ${
           error ? "border-[#ef4444]" : "border-[#263545]"
@@ -198,8 +217,12 @@ function emptyToUndefined(value: string): string | undefined {
 function validateProjectForm(form: NewProjectForm): FieldErrors {
   const errors: FieldErrors = {};
 
-  if (!/^PRJ-\d{4}-\d{3}$/.test(form.projectCode.trim().toUpperCase())) {
-    errors.projectCode = "Use PRJ-YYYY-NNN format, for example PRJ-2026-001.";
+  if (!isValidProjectCode(form.projectCode)) {
+    errors.projectCode = "Use letters, numbers, hyphens, or underscores, up to 40 characters. Example: PRJ-2026-002 or MTR26008.";
+  }
+
+  if (form.customerProjectCode.trim().length > 80) {
+    errors.customerProjectCode = "Customer project code must be 80 characters or fewer.";
   }
 
   if (!form.serialNumber.trim()) {
@@ -217,6 +240,10 @@ function validateProjectForm(form: NewProjectForm): FieldErrors {
   }
 
   return errors;
+}
+
+function isValidProjectCode(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(value.trim());
 }
 
 function getMessageClassName(type: "info" | "success" | "error"): string {

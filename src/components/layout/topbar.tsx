@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { clearStoredAuthToken } from "../../lib/client-auth";
+import { logoutStoredSession } from "../../lib/client-auth";
 import { getDisplayName, getInitials, useCurrentUser } from "../../lib/current-user";
 
 export function Topbar() {
@@ -13,8 +13,8 @@ export function Topbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  function handleLogout() {
-    clearStoredAuthToken();
+  async function handleLogout() {
+    await logoutStoredSession("MANUAL");
     router.replace("/login");
   }
 
@@ -91,7 +91,7 @@ export function Topbar() {
               Change Password
             </Link>
             <button
-              onClick={handleLogout}
+              onClick={() => void handleLogout()}
               className="mt-1 block w-full rounded px-3 py-2 text-left text-sm font-semibold text-[#fca5a5] hover:bg-[#2a1010]"
             >
               Logout

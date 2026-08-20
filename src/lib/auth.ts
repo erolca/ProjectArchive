@@ -3,6 +3,13 @@ import type { AuthTokenPayload, AuthenticatedUser } from "../modules/auth/auth.t
 
 const DEFAULT_SESSION_EXPIRES_IN = "8h";
 
+export interface AuthTokenOptions {
+  expiresInSeconds?: number;
+  sessionStartedAt?: number;
+  lastActivityAt?: number;
+  maxExpiresAt?: number;
+}
+
 export function getJwtSecret(): Secret {
   const secret = process.env.JWT_SECRET;
 
@@ -17,16 +24,21 @@ export function getSessionExpiresIn(): string {
   return process.env.SESSION_EXPIRES_IN || DEFAULT_SESSION_EXPIRES_IN;
 }
 
-export function createAuthToken(user: AuthenticatedUser): string {
+export function createAuthToken(user: AuthenticatedUser, tokenOptions: AuthTokenOptions = {}): string {
   const payload: AuthTokenPayload = {
     sub: String(user.id),
     userId: user.id,
     username: user.username,
     email: user.email,
     role: user.role,
+    sessionStartedAt: tokenOptions.sessionStartedAt,
+    lastActivityAt: tokenOptions.lastActivityAt,
+    maxExpiresAt: tokenOptions.maxExpiresAt,
   };
   const options: SignOptions = {
-    expiresIn: getSessionExpiresIn() as SignOptions["expiresIn"],
+    expiresIn: tokenOptions.expiresInSeconds
+      ? tokenOptions.expiresInSeconds
+      : getSessionExpiresIn() as SignOptions["expiresIn"],
   };
 
   return jwt.sign(payload, getJwtSecret(), options);

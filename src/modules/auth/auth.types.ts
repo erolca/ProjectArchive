@@ -36,8 +36,26 @@ export interface AuthTokenPayload {
   username: string;
   email: string;
   role: RoleName;
+  sessionStartedAt?: number;
+  lastActivityAt?: number;
+  maxExpiresAt?: number;
   iat?: number;
   exp?: number;
+}
+
+export interface SessionPolicy {
+  inactivityTimeoutMinutes: number;
+  warningMinutes: number;
+  maxLifetimeHours: number;
+  slidingEnabled: boolean;
+}
+
+export interface SessionStatus {
+  policy: SessionPolicy;
+  sessionStartedAt: number;
+  lastActivityAt: number;
+  maxExpiresAt: number;
+  expiresAt?: number | null;
 }
 
 export interface LoginInput {
@@ -49,6 +67,7 @@ export interface LoginResult {
   user: AuthenticatedUser;
   token: string;
   expiresIn: string;
+  session: SessionStatus;
 }
 
 export interface AuthorizationResult {
