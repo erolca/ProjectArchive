@@ -1,6 +1,8 @@
+import { spawn } from "node:child_process";
 import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  assertInsideStorageRoot,
   buildStoragePath,
   buildStoragePathFromRoot,
   getStorageConfig,
@@ -132,6 +134,33 @@ export async function renameProjectFolder(
   };
 }
 
+export async function openProjectFolderInExplorer(projectCode: string): Promise<void> {
+  if (process.platform !== "win32") {
+    throw new Error("Opening local folders is only available when ProjectArchive is running locally on Windows.");
+  }
+
+  const projectsRoot = buildStoragePath("projects");
+  const projectRoot = getProjectRootPath(projectCode);
+
+  try {
+    assertInsideStorageRoot(projectsRoot.absolutePath, projectRoot.absolutePath);
+  } catch {
+    throw new Error("Project folder could not be opened safely.");
+  }
+
+  try {
+    await assertDirectoryExists(projectRoot.absolutePath, "Project folder could not be found.");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Project folder could not be found.") {
+      throw error;
+    }
+
+    throw new Error("Project folder could not be opened.");
+  }
+
+  await launchWindowsExplorer(projectRoot.absolutePath);
+}
+
 export async function calculateStoredFileSha256(relativeStoragePath: string): Promise<string> {
   const { root } = getStorageConfig();
   const resolved = buildPathFromRelativeStoragePath(root, relativeStoragePath);
@@ -215,4 +244,23 @@ async function assertDirectoryDoesNotExist(directoryPath: string, message: strin
   }
 
   throw new Error(message);
+}
+
+async function launchWindowsExplorer(directoryPath: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("explorer.exe", [directoryPath], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: false,
+    });
+
+    child.once("error", () => {
+      reject(new Error("Project folder could not be opened."));
+    });
+
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
 }

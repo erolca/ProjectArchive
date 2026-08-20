@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { StatusBadge } from "../../../components/ui/status-badge";
-import { downloadApiFile, getApi, getApiBlob, postFormApi, putApi } from "../../../lib/api-client";
+import { downloadApiFile, getApi, getApiBlob, postApi, postFormApi, putApi } from "../../../lib/api-client";
 import { useCurrentUser } from "../../../lib/current-user";
 import { ENGINEERING_METADATA_OPTIONS, resolveEngineeringMetadataCode } from "../../../lib/engineering-metadata";
 import { formatBytes, formatDate, formatDateTime, shortHash } from "../../../lib/format";
@@ -313,6 +313,8 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
   const [activeTab, setActiveTab] = useState("General");
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [openFolderStatus, setOpenFolderStatus] = useState<string | null>(null);
+  const [isOpeningFolder, setIsOpeningFolder] = useState(false);
   const [prepareResult, setPrepareResult] = useState<PrepareUploadResult | null>(null);
   const [files, setFiles] = useState<ProjectFileRow[]>([]);
   const [filesStatus, setFilesStatus] = useState("Loading files");
@@ -454,6 +456,20 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
     setIsUploadOpen(true);
   }
 
+  async function openProjectFolder() {
+    setIsOpeningFolder(true);
+    setOpenFolderStatus(null);
+
+    try {
+      const result = await postApi<{ opened: boolean; message: string }>(`/api/projects/${projectId}/open-folder`, {});
+      setOpenFolderStatus(result.message || "Project folder opened in Windows Explorer.");
+    } catch (error) {
+      setOpenFolderStatus(getUserErrorMessage(error, "Project folder could not be opened."));
+    } finally {
+      setIsOpeningFolder(false);
+    }
+  }
+
   if (!project) {
     return <div className="rounded-md border border-[#263545] bg-[#111820] p-4 text-sm text-[#9fb0bf]">{status}</div>;
   }
@@ -514,7 +530,12 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
           generalForm ? (
             <div className="space-y-4">
               <ProjectIntelligenceCard project={project} files={files} backupStatus={backupStatus} />
-              <QuickUploadSection onUpload={openUploadDialog} />
+              <QuickUploadSection
+                isOpeningFolder={isOpeningFolder}
+                message={openFolderStatus}
+                onOpenFolder={openProjectFolder}
+                onUpload={openUploadDialog}
+              />
               <ProjectGeneralEditor
                 form={generalForm}
                 canEdit={Boolean(canEditProject)}
@@ -792,7 +813,17 @@ function HealthChecklistRow({ item }: { item: ArchiveHealthItem }) {
   );
 }
 
-function QuickUploadSection({ onUpload }: { onUpload: () => void }) {
+function QuickUploadSection({
+  isOpeningFolder,
+  message,
+  onOpenFolder,
+  onUpload,
+}: {
+  isOpeningFolder: boolean;
+  message: string | null;
+  onOpenFolder: () => void;
+  onUpload: () => void;
+}) {
   return (
     <section className="rounded-md border border-[#263545] bg-[#0f151d] p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -801,10 +832,20 @@ function QuickUploadSection({ onUpload }: { onUpload: () => void }) {
           <p className="mt-1 text-xs text-[#9fb0bf]">
             Add PLC, HMI, robot, engineering, documentation, or backup files using the existing upload workflow.
           </p>
+          {message ? <p className="mt-2 text-xs text-[#9fb0bf]">{message}</p> : null}
         </div>
-        <button onClick={onUpload} className="h-10 rounded-md bg-[#2f80ed] px-4 text-sm font-semibold text-white">
-          Upload File
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <button
+            onClick={onOpenFolder}
+            disabled={isOpeningFolder}
+            className="h-10 rounded-md border border-[#263545] px-4 text-sm font-semibold text-[#d9e5ef] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isOpeningFolder ? "Opening..." : "Open Project Folder"}
+          </button>
+          <button onClick={onUpload} className="h-10 rounded-md bg-[#2f80ed] px-4 text-sm font-semibold text-white">
+            Quick Upload
+          </button>
+        </div>
       </div>
     </section>
   );

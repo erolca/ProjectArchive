@@ -2,7 +2,7 @@ import { ActivityAction, type Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { requirePermission } from "../auth/permissions";
 import type { AuthenticatedUser } from "../auth/auth.types";
-import { createProjectFolders, renameProjectFolder } from "../storage/storage.service";
+import { createProjectFolders, openProjectFolderInExplorer, renameProjectFolder } from "../storage/storage.service";
 import { logActivity } from "../activity/activity.service";
 import { listProjects } from "./project.search";
 import { createProjectSchema, projectCodeParamSchema, projectIdSchema, updateProjectSchema } from "./project.validators";
@@ -228,6 +228,32 @@ export async function getProjectById(user: AuthenticatedUser, projectId: number)
     },
     include: PROJECT_DETAIL_INCLUDE,
   });
+}
+
+export async function openProjectStorageFolder(user: AuthenticatedUser, projectId: number) {
+  requirePermission(user, "projects:read");
+
+  const id = projectIdSchema.parse(projectId);
+  const project = await prisma.project.findFirst({
+    where: {
+      id,
+      deletedAt: null,
+    },
+    select: {
+      projectCode: true,
+    },
+  });
+
+  if (!project) {
+    throw new Error("Project not found.");
+  }
+
+  await openProjectFolderInExplorer(project.projectCode);
+
+  return {
+    opened: true,
+    message: "Project folder opened in Windows Explorer.",
+  };
 }
 
 export async function resolveProjectShortLink(user: AuthenticatedUser, projectCode: string) {
