@@ -50,10 +50,15 @@ export interface ProjectListQuery {
   hmiBrand?: string;
   robotBrand?: string;
   status?: ProjectStatus;
+  includeArchived?: boolean;
   sortBy?: "updatedAt" | "createdAt" | "projectCode" | "customerName" | "machineName" | "status";
   sortOrder?: "asc" | "desc";
   page?: number;
   pageSize?: number;
+}
+
+export interface DeleteProjectInput {
+  projectCodeConfirmation: string;
 }
 
 export interface ProjectListResult<TProject> {

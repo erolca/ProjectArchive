@@ -38,6 +38,7 @@ export default function ProjectsPage() {
   const [plcBrand, setPlcBrand] = useState("");
   const [hmiBrand, setHmiBrand] = useState("");
   const [robotBrand, setRobotBrand] = useState("");
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [sortBy, setSortBy] = useState("updatedAt");
   const [sortOrder, setSortOrder] = useState("desc");
   const [page, setPage] = useState(1);
@@ -52,6 +53,7 @@ export default function ProjectsPage() {
     if (plcBrand) params.set("plcBrand", plcBrand);
     if (hmiBrand) params.set("hmiBrand", hmiBrand);
     if (robotBrand) params.set("robotBrand", robotBrand);
+    if (includeArchived) params.set("includeArchived", "true");
     params.set("sortBy", sortBy);
     params.set("sortOrder", sortOrder);
     params.set("page", String(page));
@@ -66,7 +68,7 @@ export default function ProjectsPage() {
       .catch((error) => {
         setStatus(error instanceof Error ? error.message : "Could not load projects.");
       });
-  }, [query, statusFilter, plcBrand, hmiBrand, robotBrand, sortBy, sortOrder, page, pageSize]);
+  }, [query, statusFilter, plcBrand, hmiBrand, robotBrand, includeArchived, sortBy, sortOrder, page, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -96,7 +98,7 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 rounded-md border border-[#263545] bg-[#111820] p-4 md:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-3 rounded-md border border-[#263545] bg-[#111820] p-4 md:grid-cols-2 xl:grid-cols-7">
         <SelectFilter
           label="Status"
           value={statusFilter}
@@ -137,6 +139,18 @@ export default function ProjectsPage() {
           options={["updatedAt", "createdAt", "projectCode", "customerName", "machineName", "status"]}
         />
         <SelectFilter label="Order" value={sortOrder} onChange={setSortOrder} options={["desc", "asc"]} />
+        <label className="flex items-end gap-2 rounded-md border border-[#263545] bg-[#0b0f14] px-3 py-2 text-sm text-[#c6d3df]">
+          <input
+            type="checkbox"
+            checked={includeArchived}
+            onChange={(event) => {
+              setIncludeArchived(event.target.checked);
+              setPage(1);
+            }}
+            className="h-4 w-4"
+          />
+          Include archived
+        </label>
       </div>
 
       <div className="overflow-hidden rounded-md border border-[#263545] bg-[#111820]">

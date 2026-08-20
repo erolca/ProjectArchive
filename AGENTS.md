@@ -36,6 +36,7 @@ Completed features:
 * Project General Information can be edited after creation with a single Save Changes action and per-field audit logging that records old value, new value, user, and timestamp.
 * Project Code changes rename the project storage folder, preserve existing files/versions, update storage path pointers, and roll back the folder rename if the database update fails.
 * Project folders include an automatically generated `_PROJECT_INFO.txt` file with current project/customer/machine metadata for engineers browsing the physical archive.
+* ADMIN users can archive/unarchive projects and permanently delete only empty/test projects after Project Code confirmation and safe storage checks.
 * Project Detail General view includes a compact Project Intelligence summary with key systems, archive health scoring, completeness checklist, suggestions, latest backup, and last update using existing project metadata, uploaded file metadata, archive versions, and backup status.
 * Project Detail includes an Engineering Timeline section that groups project-specific ActivityLog events by date using the existing activity API and permissions.
 * Project Detail General view includes a local Windows `Open Project Folder` action that opens the current project's storage directory through a secure project-id-only API endpoint.
@@ -79,6 +80,7 @@ Current architecture:
 * Project General edits reuse `PUT /api/projects/[id]`, send only modified fields, and remain disabled for read-only roles.
 * Project storage folder rename is handled in the project service using the storage service: filesystem target existence is checked first, the folder is renamed before the database update, relative storage path pointers are updated inside the project update transaction, and the folder is renamed back if the transaction fails.
 * `_PROJECT_INFO.txt` is generated from database metadata after project folder creation and after successful General Information updates; it is written atomically through a temp file and rename, is not represented by ProjectFile/FileVersion records, and can be regenerated for legacy folders with `npm run sync:project-info`.
+* Project archive reuses the existing `ARCHIVED` project status and preserves database records, storage folders, file versions, backup/restore compatibility, and activity history; permanent delete is blocked when file/version metadata or unexpected physical files exist.
 * Open Project Folder derives the target directory from immutable `Project.id` and stored `projectCode`, validates the resolved path remains under `STORAGE_ROOT/projects`, confirms the directory exists, and launches Windows Explorer with a safe argument array without exposing the absolute path in API responses.
 * Project Code validation is shared across backend project validation and storage path validation: codes are trimmed, normalized to uppercase, capped at 40 characters, and limited to letters, numbers, hyphen, and underscore so they remain safe under `STORAGE_ROOT/projects`.
 * Project Intelligence and Archive Health are computed in the Project Detail UI from already-loaded project and file records, plus the existing backup status endpoint; they do not run preview scanners, background jobs, or add database fields.
@@ -106,6 +108,7 @@ Database changes:
 * Added restore audit actions for disaster recovery operations.
 * Added engineering metadata fields to project files and file versions.
 * Added optional `Project.customerProjectCode` metadata field for customer project/order/reference codes; it is not used for filesystem paths or relationships.
+* No database fields were added for safe archive/delete; archive uses the existing `ProjectStatus.ARCHIVED` value and delete uses existing relations.
 * No database fields were added for file intelligence; extracted metadata is computed on demand to avoid migration and cache invalidation risk.
 * No database fields were added for engineering detection; detected type, confidence, evidence, and warnings are calculated on demand.
 * No database fields were added for vendor scanner output; scanner summaries, metrics, evidence, and warnings are calculated during preview.
@@ -116,7 +119,7 @@ API endpoints:
 
 * Auth: `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/refresh`, `GET /api/auth/session`, `GET /api/auth/me`
 * Dashboard: `GET /api/dashboard`
-* Projects: `GET/POST /api/projects`, `GET/PUT /api/projects/[id]`, `POST /api/projects/[id]/open-folder`, `GET /api/projects/search`, `GET /api/projects/code/[projectCode]`
+* Projects: `GET/POST /api/projects`, `GET/PUT/DELETE /api/projects/[id]`, `POST /api/projects/[id]/archive`, `POST /api/projects/[id]/unarchive`, `POST /api/projects/[id]/open-folder`, `GET /api/projects/search`, `GET /api/projects/code/[projectCode]`
 * Files: `GET /api/projects/[id]/files`, `POST /api/projects/[id]/files/upload`, `POST /api/projects/[id]/files/prepare`, `POST /api/projects/[id]/files/finalize`, `POST /api/files/[id]/versions`, `GET /api/files/[id]/download`
 * Activity: `GET /api/activity`
 * Users: `GET/POST /api/users`, `PUT/DELETE /api/users/[id]`, `POST /api/users/[id]/password`

@@ -58,6 +58,8 @@ export function buildProjectWhere(query: ReturnType<typeof projectListQuerySchem
 
   if (query.status) {
     and.push({ status: query.status });
+  } else if (!query.includeArchived) {
+    and.push({ status: { not: "ARCHIVED" } });
   }
 
   if (query.projectCode) {

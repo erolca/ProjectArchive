@@ -1,17 +1,30 @@
-import { ActivityAction, type Prisma } from "@prisma/client";
+import { ActivityAction, ProjectStatus, type Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { requirePermission } from "../auth/permissions";
 import type { AuthenticatedUser } from "../auth/auth.types";
-import { createProjectFolders, openProjectFolderInExplorer, renameProjectFolder } from "../storage/storage.service";
+import {
+  createProjectFolders,
+  deleteProjectStorageFolder,
+  listProjectStorageFiles,
+  openProjectFolderInExplorer,
+  renameProjectFolder,
+} from "../storage/storage.service";
 import { logActivity } from "../activity/activity.service";
 import {
+  isProjectInfoSystemFile,
   logProjectInfoSyncFailure,
   logProjectInfoSyncSkipped,
   syncProjectInfoFile,
 } from "./project-info-file.service";
 import { listProjects } from "./project.search";
-import { createProjectSchema, projectCodeParamSchema, projectIdSchema, updateProjectSchema } from "./project.validators";
-import type { CreateProjectInput, CustomerInput, ProjectListQuery, UpdateProjectInput } from "./project.types";
+import {
+  createProjectSchema,
+  deleteProjectSchema,
+  projectCodeParamSchema,
+  projectIdSchema,
+  updateProjectSchema,
+} from "./project.validators";
+import type { CreateProjectInput, CustomerInput, DeleteProjectInput, ProjectListQuery, UpdateProjectInput } from "./project.types";
 
 const PROJECT_DETAIL_INCLUDE = {
   customer: true,
@@ -139,6 +152,14 @@ export async function updateProject(user: AuthenticatedUser, projectId: number, 
 
   if (!existingProject) {
     throw new Error("Project not found.");
+  }
+
+  if (
+    data.status &&
+    data.status !== existingProject.status &&
+    (data.status === ProjectStatus.ARCHIVED || existingProject.status === ProjectStatus.ARCHIVED)
+  ) {
+    requirePermission(user, "projects:delete");
   }
 
   if (data.serialNumber && data.serialNumber !== existingProject.serialNumber) {
@@ -281,6 +302,150 @@ export async function openProjectStorageFolder(user: AuthenticatedUser, projectI
   };
 }
 
+export async function archiveProject(user: AuthenticatedUser, projectId: number) {
+  requirePermission(user, "projects:delete");
+
+  const id = projectIdSchema.parse(projectId);
+  const existingProject = await getProjectForManagement(id);
+
+  if (existingProject.status === ProjectStatus.ARCHIVED) {
+    return {
+      project: existingProject,
+      message: "Project is already archived.",
+    };
+  }
+
+  const project = await prisma.project.update({
+    where: {
+      id,
+    },
+    data: {
+      status: ProjectStatus.ARCHIVED,
+      archivedAt: new Date(),
+      updatedById: user.id,
+    },
+    include: PROJECT_DETAIL_INCLUDE,
+  });
+
+  await logActivity({
+    userId: user.id,
+    projectId: project.id,
+    action: ActivityAction.PROJECT_ARCHIVED,
+    entityType: "Project",
+    entityId: project.id,
+    details: `Project ${project.projectCode} archived by ${user.fullName || user.username}.`,
+  });
+  await syncProjectInfoFileWithoutBlocking(project, "project archive");
+
+  return {
+    project,
+    message: "Project archived.",
+  };
+}
+
+export async function unarchiveProject(user: AuthenticatedUser, projectId: number) {
+  requirePermission(user, "projects:delete");
+
+  const id = projectIdSchema.parse(projectId);
+  const existingProject = await getProjectForManagement(id);
+
+  if (existingProject.status !== ProjectStatus.ARCHIVED) {
+    return {
+      project: existingProject,
+      message: "Project is already active.",
+    };
+  }
+
+  const project = await prisma.project.update({
+    where: {
+      id,
+    },
+    data: {
+      status: ProjectStatus.DESIGN,
+      archivedAt: null,
+      updatedById: user.id,
+    },
+    include: PROJECT_DETAIL_INCLUDE,
+  });
+
+  await logActivity({
+    userId: user.id,
+    projectId: project.id,
+    action: ActivityAction.PROJECT_UPDATED,
+    entityType: "Project",
+    entityId: project.id,
+    details: `Project ${project.projectCode} unarchived by ${user.fullName || user.username}. Status set to DESIGN.`,
+  });
+  await syncProjectInfoFileWithoutBlocking(project, "project unarchive");
+
+  return {
+    project,
+    message: "Project restored from archive.",
+  };
+}
+
+export async function permanentlyDeleteEmptyProject(
+  user: AuthenticatedUser,
+  projectId: number,
+  input: DeleteProjectInput,
+) {
+  requirePermission(user, "projects:delete");
+
+  const id = projectIdSchema.parse(projectId);
+  const data = deleteProjectSchema.parse(input);
+  const project = await getProjectForManagement(id);
+
+  if (data.projectCodeConfirmation !== project.projectCode) {
+    throw new Error("Project Code confirmation does not match.");
+  }
+
+  const assessment = await assessProjectPermanentDelete(project.id, project.projectCode);
+
+  if (!assessment.canDelete) {
+    throw new Error(buildArchiveInsteadMessage(assessment));
+  }
+
+  try {
+    await deleteProjectStorageFolder(project.projectCode);
+  } catch {
+    throw new Error("Project folder could not be deleted safely. The project was not deleted.");
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.projectTag.deleteMany({
+        where: {
+          projectId: project.id,
+        },
+      });
+      await tx.project.delete({
+        where: {
+          id: project.id,
+        },
+      });
+      await tx.activityLog.create({
+        data: {
+          userId: user.id,
+          projectId: null,
+          action: ActivityAction.PROJECT_DELETED,
+          entityType: "Project",
+          entityId: project.id,
+          details: `Empty project ${project.projectCode} permanently deleted by ${user.fullName || user.username}.`,
+        },
+      });
+    });
+  } catch (error) {
+    await recreateProjectFolderAfterFailedDelete(project);
+    throw new Error("Project could not be deleted safely. Project metadata was preserved.");
+  }
+
+  return {
+    deleted: true,
+    message: "Empty project permanently deleted.",
+    summary: assessment,
+  };
+}
+
 export async function resolveProjectShortLink(user: AuthenticatedUser, projectCode: string) {
   requirePermission(user, "projects:read");
 
@@ -299,6 +464,111 @@ export async function searchProjects(user: AuthenticatedUser, query: ProjectList
   requirePermission(user, "projects:read");
 
   return listProjects(query);
+}
+
+async function getProjectForManagement(projectId: number): Promise<ProjectDetailPayload> {
+  const project = await prisma.project.findFirst({
+    where: {
+      id: projectId,
+      deletedAt: null,
+    },
+    include: PROJECT_DETAIL_INCLUDE,
+  });
+
+  if (!project) {
+    throw new Error("Project not found.");
+  }
+
+  return project;
+}
+
+async function syncProjectInfoFileWithoutBlocking(project: ProjectDetailPayload, context: string): Promise<void> {
+  try {
+    const result = await syncProjectInfoFile(project);
+
+    if (result.skipped) {
+      logProjectInfoSyncSkipped(project.projectCode, context, result.reason);
+    }
+  } catch {
+    logProjectInfoSyncFailure(project.projectCode, context);
+  }
+}
+
+async function assessProjectPermanentDelete(projectId: number, projectCode: string) {
+  const [fileCount, versionCount, revisionCount, commissioningCount, serviceCount, tagLinkCount, physicalStorage] =
+    await Promise.all([
+      prisma.projectFile.count({
+        where: {
+          projectId,
+        },
+      }),
+      prisma.fileVersion.count({
+        where: {
+          file: {
+            projectId,
+          },
+        },
+      }),
+      prisma.projectRevision.count({
+        where: {
+          projectId,
+        },
+      }),
+      prisma.commissioningRecord.count({
+        where: {
+          projectId,
+        },
+      }),
+      prisma.serviceRecord.count({
+        where: {
+          projectId,
+        },
+      }),
+      prisma.projectTag.count({
+        where: {
+          projectId,
+        },
+      }),
+      listProjectStorageFiles(projectCode),
+    ]);
+  const unexpectedPhysicalFiles = physicalStorage.files.filter((filePath) => !isProjectInfoSystemFile(filePath));
+  const blockers = [
+    fileCount > 0 ? `${fileCount} file record${fileCount === 1 ? "" : "s"}` : null,
+    versionCount > 0 ? `${versionCount} version record${versionCount === 1 ? "" : "s"}` : null,
+    revisionCount > 0 ? `${revisionCount} revision record${revisionCount === 1 ? "" : "s"}` : null,
+    commissioningCount > 0 ? `${commissioningCount} commissioning record${commissioningCount === 1 ? "" : "s"}` : null,
+    serviceCount > 0 ? `${serviceCount} service record${serviceCount === 1 ? "" : "s"}` : null,
+    unexpectedPhysicalFiles.length > 0
+      ? `${unexpectedPhysicalFiles.length} physical file${unexpectedPhysicalFiles.length === 1 ? "" : "s"}`
+      : null,
+  ].filter((blocker): blocker is string => Boolean(blocker));
+
+  return {
+    projectCode,
+    databaseFileCount: fileCount,
+    versionCount,
+    revisionCount,
+    commissioningCount,
+    serviceCount,
+    tagLinkCount,
+    folderExists: physicalStorage.folderExists,
+    unexpectedPhysicalFileCount: unexpectedPhysicalFiles.length,
+    canDelete: blockers.length === 0,
+    blockers,
+  };
+}
+
+function buildArchiveInsteadMessage(assessment: Awaited<ReturnType<typeof assessProjectPermanentDelete>>): string {
+  return `This project contains ${assessment.blockers.join(", ")}. Archive the project instead of permanently deleting it.`;
+}
+
+async function recreateProjectFolderAfterFailedDelete(project: ProjectDetailPayload): Promise<void> {
+  try {
+    await createProjectFolders(project.projectCode);
+    await syncProjectInfoFile(project);
+  } catch {
+    logProjectInfoSyncFailure(project.projectCode, "failed delete rollback");
+  }
 }
 
 async function resolveCustomer(input: CustomerInput) {

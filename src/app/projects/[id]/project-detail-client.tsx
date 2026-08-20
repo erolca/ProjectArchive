@@ -1,8 +1,9 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { StatusBadge } from "../../../components/ui/status-badge";
-import { downloadApiFile, getApi, getApiBlob, postApi, postFormApi, putApi } from "../../../lib/api-client";
+import { apiRequest, downloadApiFile, getApi, getApiBlob, postApi, postFormApi, putApi } from "../../../lib/api-client";
 import { useCurrentUser } from "../../../lib/current-user";
 import { ENGINEERING_METADATA_OPTIONS, resolveEngineeringMetadataCode } from "../../../lib/engineering-metadata";
 import { formatBytes, formatDate, formatDateTime, shortHash } from "../../../lib/format";
@@ -304,6 +305,7 @@ interface FilePreviewResult {
 }
 
 export function ProjectDetailClient({ projectId }: { projectId: string }) {
+  const router = useRouter();
   const currentUser = useCurrentUser();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [status, setStatus] = useState("Loading project");
@@ -315,6 +317,11 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [openFolderStatus, setOpenFolderStatus] = useState<string | null>(null);
   const [isOpeningFolder, setIsOpeningFolder] = useState(false);
+  const [dangerMessage, setDangerMessage] = useState<string | null>(null);
+  const [isArchivingProject, setIsArchivingProject] = useState(false);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [prepareResult, setPrepareResult] = useState<PrepareUploadResult | null>(null);
   const [files, setFiles] = useState<ProjectFileRow[]>([]);
   const [filesStatus, setFilesStatus] = useState("Loading files");
@@ -412,6 +419,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
   }
 
   const canEditProject = currentUser?.role === "ADMIN" || currentUser?.role === "ENGINEER";
+  const canManageProject = currentUser?.role === "ADMIN";
   const generalChanges = project && generalForm ? buildProjectGeneralChanges(project, generalForm) : {};
   const hasGeneralChanges = Object.keys(generalChanges).length > 0;
 
@@ -467,6 +475,53 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
       setOpenFolderStatus(getUserErrorMessage(error, "Project folder could not be opened."));
     } finally {
       setIsOpeningFolder(false);
+    }
+  }
+
+  async function archiveOrRestoreProject() {
+    if (!project) {
+      return;
+    }
+
+    setIsArchivingProject(true);
+    setDangerMessage(null);
+
+    try {
+      const action = project.status === "ARCHIVED" ? "unarchive" : "archive";
+      const result = await postApi<{ project: ProjectDetail; message: string }>(`/api/projects/${projectId}/${action}`, {});
+      setProject(result.project);
+      setGeneralForm(toProjectGeneralForm(result.project));
+      setDangerMessage(result.message);
+    } catch (error) {
+      setDangerMessage(getUserErrorMessage(error, "Project status could not be changed."));
+    } finally {
+      setIsArchivingProject(false);
+    }
+  }
+
+  async function deleteProjectPermanently() {
+    if (!project || deleteConfirmation !== project.projectCode) {
+      setDangerMessage("Type the Project Code exactly to confirm permanent delete.");
+      return;
+    }
+
+    setIsDeletingProject(true);
+    setDangerMessage(null);
+
+    try {
+      const result = await apiRequest<{ deleted: boolean; message: string }>(`/api/projects/${projectId}`, {
+        method: "DELETE",
+        body: JSON.stringify({
+          projectCodeConfirmation: deleteConfirmation,
+        }),
+      });
+      setDangerMessage(result.message);
+      setIsDeleteDialogOpen(false);
+      router.push("/projects");
+    } catch (error) {
+      setDangerMessage(getUserErrorMessage(error, "Project could not be permanently deleted."));
+    } finally {
+      setIsDeletingProject(false);
     }
   }
 
@@ -539,6 +594,7 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
               <ProjectGeneralEditor
                 form={generalForm}
                 canEdit={Boolean(canEditProject)}
+                canArchive={Boolean(canManageProject)}
                 isSaving={isSavingGeneral}
                 hasChanges={hasGeneralChanges}
                 message={generalSaveMessage}
@@ -548,6 +604,26 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
                 }}
                 onSave={saveProjectGeneralChanges}
               />
+              {canManageProject ? (
+                <ProjectDangerZone
+                  projectCode={project.projectCode}
+                  isArchived={project.status === "ARCHIVED"}
+                  message={dangerMessage}
+                  isArchiving={isArchivingProject}
+                  isDeleting={isDeletingProject}
+                  isDeleteDialogOpen={isDeleteDialogOpen}
+                  deleteConfirmation={deleteConfirmation}
+                  onArchiveToggle={archiveOrRestoreProject}
+                  onDeleteDialogOpen={() => {
+                    setDeleteConfirmation("");
+                    setDangerMessage(null);
+                    setIsDeleteDialogOpen(true);
+                  }}
+                  onDeleteDialogClose={() => setIsDeleteDialogOpen(false)}
+                  onDeleteConfirmationChange={setDeleteConfirmation}
+                  onDeleteConfirm={deleteProjectPermanently}
+                />
+              ) : null}
             </div>
           ) : null
         ) : fileTabs.has(activeTab) ? (
@@ -851,6 +927,106 @@ function QuickUploadSection({
   );
 }
 
+function ProjectDangerZone({
+  projectCode,
+  isArchived,
+  message,
+  isArchiving,
+  isDeleting,
+  isDeleteDialogOpen,
+  deleteConfirmation,
+  onArchiveToggle,
+  onDeleteDialogOpen,
+  onDeleteDialogClose,
+  onDeleteConfirmationChange,
+  onDeleteConfirm,
+}: {
+  projectCode: string;
+  isArchived: boolean;
+  message: string | null;
+  isArchiving: boolean;
+  isDeleting: boolean;
+  isDeleteDialogOpen: boolean;
+  deleteConfirmation: string;
+  onArchiveToggle: () => void;
+  onDeleteDialogOpen: () => void;
+  onDeleteDialogClose: () => void;
+  onDeleteConfirmationChange: (value: string) => void;
+  onDeleteConfirm: () => void;
+}) {
+  const deleteEnabled = deleteConfirmation === projectCode && !isDeleting;
+
+  return (
+    <section className="rounded-md border border-[#7f1d1d] bg-[#160d0d] p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#fca5a5]">Danger Zone</div>
+          <h4 className="mt-1 text-sm font-semibold text-white">Archive or permanently delete this project</h4>
+          <p className="mt-1 max-w-2xl text-xs text-[#d7b0b0]">
+            Archive real projects to preserve files, versions, storage, and history. Permanent delete is only available for empty test projects.
+          </p>
+          {message ? <p className="mt-2 text-xs text-[#f8d28b]">{message}</p> : null}
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            onClick={onArchiveToggle}
+            disabled={isArchiving || isDeleting}
+            className="h-10 rounded-md border border-[#f59e0b] px-4 text-sm font-semibold text-[#f8d28b] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isArchiving ? "Saving..." : isArchived ? "Unarchive Project" : "Archive Project"}
+          </button>
+          <button
+            onClick={onDeleteDialogOpen}
+            disabled={isArchiving || isDeleting}
+            className="h-10 rounded-md bg-[#dc2626] px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Delete Project
+          </button>
+        </div>
+      </div>
+
+      {isDeleteDialogOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
+          <div className="w-full max-w-lg rounded-md border border-[#7f1d1d] bg-[#111820] p-4 shadow-xl">
+            <h3 className="text-base font-semibold text-white">Delete Project Permanently</h3>
+            <div className="mt-4 space-y-3 text-sm text-[#c6d3df]">
+              <p>
+                Project: <span className="font-semibold text-white">{projectCode}</span>
+              </p>
+              <p>This action is only allowed when the project is empty. Projects with engineering files must be archived instead.</p>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase text-[#9fb0bf]">Type the Project Code to confirm</span>
+                <input
+                  value={deleteConfirmation}
+                  onChange={(event) => onDeleteConfirmationChange(event.target.value)}
+                  placeholder={projectCode}
+                  className="mt-1 w-full rounded-md border border-[#263545] bg-[#0b0f14] px-3 py-2 text-sm text-white outline-none focus:border-[#dc2626]"
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2 border-t border-[#263545] pt-4">
+              <button
+                onClick={onDeleteDialogClose}
+                disabled={isDeleting}
+                className="rounded-md border border-[#263545] px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onDeleteConfirm}
+                disabled={!deleteEnabled}
+                className="rounded-md bg-[#dc2626] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isDeleting ? "Deleting..." : "Delete Permanently"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function IntelligenceLine({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="grid min-w-0 grid-cols-[120px_minmax(0,1fr)] gap-3 rounded-md border border-[#263545] bg-[#111820] px-3 py-2">
@@ -863,6 +1039,7 @@ function IntelligenceLine({ label, value, highlight = false }: { label: string; 
 function ProjectGeneralEditor({
   form,
   canEdit,
+  canArchive,
   isSaving,
   hasChanges,
   message,
@@ -871,12 +1048,20 @@ function ProjectGeneralEditor({
 }: {
   form: ProjectGeneralForm;
   canEdit: boolean;
+  canArchive: boolean;
   isSaving: boolean;
   hasChanges: boolean;
   message: string | null;
   onChange: (field: keyof ProjectGeneralForm, value: string) => void;
   onSave: () => void;
 }) {
+  const availableStatusOptions = canArchive
+    ? projectStatusOptions
+    : form.status === "ARCHIVED"
+      ? ["ARCHIVED"]
+      : projectStatusOptions.filter((statusOption) => statusOption !== "ARCHIVED");
+  const statusDisabled = !canEdit || isSaving || (!canArchive && form.status === "ARCHIVED");
+
   return (
     <div className="mt-4 space-y-4">
       {!canEdit ? (
@@ -911,10 +1096,10 @@ function ProjectGeneralEditor({
           <select
             value={form.status}
             onChange={(event) => onChange("status", event.target.value)}
-            disabled={!canEdit || isSaving}
+            disabled={statusDisabled}
             className="mt-1 h-10 w-full rounded-md border border-[#263545] bg-[#0b0f14] px-3 text-sm font-semibold text-white outline-none focus:border-[#2f80ed] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {projectStatusOptions.map((statusOption) => (
+            {availableStatusOptions.map((statusOption) => (
               <option key={statusOption} value={statusOption}>
                 {statusOption}
               </option>

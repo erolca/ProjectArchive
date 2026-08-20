@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   assertInsideStorageRoot,
@@ -161,6 +161,53 @@ export async function openProjectFolderInExplorer(projectCode: string): Promise<
   await launchWindowsExplorer(projectRoot.absolutePath);
 }
 
+export async function listProjectStorageFiles(projectCode: string): Promise<{ folderExists: boolean; files: string[] }> {
+  const projectsRoot = buildStoragePath("projects");
+  const projectRoot = getProjectRootPath(projectCode);
+
+  assertProjectPathInsideProjectsRoot(projectsRoot.absolutePath, projectRoot.absolutePath);
+
+  const projectRootKind = await getStorageEntryKind(projectRoot.absolutePath);
+
+  if (projectRootKind === "missing") {
+    return {
+      folderExists: false,
+      files: [],
+    };
+  }
+
+  if (projectRootKind !== "directory") {
+    throw new Error("Project storage folder could not be inspected.");
+  }
+
+  return {
+    folderExists: true,
+    files: await collectStorageFiles(projectsRoot.absolutePath, projectRoot.absolutePath),
+  };
+}
+
+export async function deleteProjectStorageFolder(projectCode: string): Promise<void> {
+  const projectsRoot = buildStoragePath("projects");
+  const projectRoot = getProjectRootPath(projectCode);
+
+  assertProjectPathInsideProjectsRoot(projectsRoot.absolutePath, projectRoot.absolutePath);
+
+  const projectRootKind = await getStorageEntryKind(projectRoot.absolutePath);
+
+  if (projectRootKind === "missing") {
+    return;
+  }
+
+  if (projectRootKind !== "directory") {
+    throw new Error("Project storage folder could not be removed safely.");
+  }
+
+  await rm(projectRoot.absolutePath, {
+    recursive: true,
+    force: false,
+  });
+}
+
 export async function calculateStoredFileSha256(relativeStoragePath: string): Promise<string> {
   const { root } = getStorageConfig();
   const resolved = buildPathFromRelativeStoragePath(root, relativeStoragePath);
@@ -244,6 +291,64 @@ async function assertDirectoryDoesNotExist(directoryPath: string, message: strin
   }
 
   throw new Error(message);
+}
+
+function assertProjectPathInsideProjectsRoot(projectsRootPath: string, projectPath: string): void {
+  try {
+    assertInsideStorageRoot(projectsRootPath, projectPath);
+  } catch {
+    throw new Error("Project storage folder could not be resolved safely.");
+  }
+}
+
+async function getStorageEntryKind(targetPath: string): Promise<"directory" | "file" | "other" | "missing"> {
+  try {
+    const targetStat = await stat(targetPath);
+
+    if (targetStat.isDirectory()) {
+      return "directory";
+    }
+
+    if (targetStat.isFile()) {
+      return "file";
+    }
+
+    return "other";
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return "missing";
+    }
+
+    return "other";
+  }
+}
+
+async function collectStorageFiles(projectsRootPath: string, rootDirectoryPath: string): Promise<string[]> {
+  const files: string[] = [];
+  const pendingDirectories = [rootDirectoryPath];
+
+  while (pendingDirectories.length > 0) {
+    const currentDirectory = pendingDirectories.pop();
+
+    if (!currentDirectory) {
+      continue;
+    }
+
+    const entries = await readdir(currentDirectory, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const entryPath = path.resolve(currentDirectory, entry.name);
+      assertProjectPathInsideProjectsRoot(projectsRootPath, entryPath);
+
+      if (entry.isDirectory()) {
+        pendingDirectories.push(entryPath);
+      } else if (entry.isFile()) {
+        files.push(toStorageRelativePath(path.dirname(projectsRootPath), entryPath));
+      }
+    }
+  }
+
+  return files;
 }
 
 async function launchWindowsExplorer(directoryPath: string): Promise<void> {

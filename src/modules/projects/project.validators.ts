@@ -93,6 +93,9 @@ export const projectListQuerySchema = z.object({
   hmiBrand: optionalText(120),
   robotBrand: optionalText(120),
   status: z.enum(ProjectStatus).optional(),
+  includeArchived: z
+    .preprocess((value) => value === true || value === "true" || value === "1", z.boolean())
+    .default(false),
   sortBy: z
     .enum(["updatedAt", "createdAt", "projectCode", "customerName", "machineName", "status"])
     .default("updatedAt"),
@@ -103,3 +106,6 @@ export const projectListQuerySchema = z.object({
 
 export const projectIdSchema = z.number().int().positive();
 export const projectCodeParamSchema = projectCodeSchema;
+export const deleteProjectSchema = z.object({
+  projectCodeConfirmation: projectCodeSchema,
+});
