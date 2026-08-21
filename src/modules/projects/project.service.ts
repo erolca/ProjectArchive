@@ -391,6 +391,10 @@ export async function permanentlyDeleteEmptyProject(
 ) {
   requirePermission(user, "projects:delete");
 
+  if (user.role !== "ADMIN") {
+    throw new Error("Permission denied.");
+  }
+
   const id = projectIdSchema.parse(projectId);
   const data = deleteProjectSchema.parse(input);
   const project = await getProjectForManagement(id);
